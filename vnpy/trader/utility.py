@@ -45,17 +45,43 @@ def _get_trader_dir(temp_name: str) -> tuple[Path, Path]:
     # If .vntrader folder exists in current working directory,
     # then use it as trader running path.
     if temp_path.exists():
-        return cwd, temp_path
+        trader_dir = cwd
+        temp_dir = temp_path
+        # Ensure strategies directory exists under trader runtime root.
+        strategies_dir = trader_dir.joinpath("strategies")
+        if not strategies_dir.exists():
+            strategies_dir.mkdir(parents=True, exist_ok=True)
+        return trader_dir, temp_dir
 
-    # Otherwise use home path of system.
-    home_path: Path = Path.home()
-    temp_path = home_path.joinpath(temp_name)
+    # Otherwise, prefer to create runtime temp under ./user and
+    # also shift the trading runtime root (TRADER_DIR) under ./user.
+    #
+    # Layout:
+    #   <cwd>/
+    #     user/
+    #       .vntrader/  (temp files)
+    #       strategies/ (user strategies loaded by trader apps)
+    user_root: Path = cwd.joinpath("user")
+    user_temp_path: Path = user_root.joinpath(temp_name)
 
-    # Create .vntrader folder under home path if not exist.
-    if not temp_path.exists():
-        temp_path.mkdir()
-
-    return home_path, temp_path
+    try:
+        user_root.mkdir(parents=True, exist_ok=True)
+        user_temp_path.mkdir(parents=True, exist_ok=True)
+        # Ensure strategies directory exists under ./user.
+        strategies_dir = user_root.joinpath("strategies")
+        if not strategies_dir.exists():
+            strategies_dir.mkdir(parents=True, exist_ok=True)
+        return user_root, user_temp_path
+    except OSError:
+        # Fallback to home path if ./user is not writable.
+        home_path: Path = Path.home()
+        temp_path = home_path.joinpath(temp_name)
+        if not temp_path.exists():
+            temp_path.mkdir()
+        strategies_dir = home_path.joinpath("strategies")
+        if not strategies_dir.exists():
+            strategies_dir.mkdir(parents=True, exist_ok=True)
+        return home_path, temp_path
 
 
 TRADER_DIR, TEMP_DIR = _get_trader_dir(".vntrader")
