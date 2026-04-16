@@ -28,8 +28,11 @@ class XGBoostExtremaModel(AlphaModel):
     extremum detection based on local statistics.
     """
 
-    # Class-level constant for prediction column name
+    # Class-level constants for prediction column name and thresholds
     PREDICTION_COL = PREDICTION_COL
+    DEFAULT_MAXIMA_THRESHOLD = DEFAULT_MAXIMA_THRESHOLD
+    DEFAULT_MINIMA_THRESHOLD = DEFAULT_MINIMA_THRESHOLD
+    MIN_CANDLES_FOR_DYNAMIC = MIN_CANDLES_FOR_DYNAMIC
 
     def __init__(
         self,
@@ -105,6 +108,8 @@ class XGBoostExtremaModel(AlphaModel):
 
         # State tracking for progressive thresholds
         self._predictions_history: np.ndarray | None = None
+        self._prediction_count: int = 0
+        self._historic_predictions: dict[str, pl.DataFrame] = {}
         self._dynamic_thresholds: dict[str, float] = {
             "maxima": maxima_threshold,
             "minima": abs(minima_threshold),
@@ -192,6 +197,61 @@ class XGBoostExtremaModel(AlphaModel):
             min_pred = DEFAULT_MINIMA_THRESHOLD
 
         return float(max_pred), float(min_pred)
+
+    def _get_historic_predictions_df(self) -> pl.DataFrame:
+        """
+        Merge all historic predictions across symbols.
+
+        Returns
+        -------
+        pl.DataFrame
+            DataFrame containing all historic predictions in PREDICTION_COL column
+        """
+        if not self._historic_predictions:
+            return pl.DataFrame().with_columns(
+                pl.Series(self.PREDICTION_COL, [])
+            )
+        return pl.concat(list(self._historic_predictions.values()))
+
+    def _compute_progressive_thresholds(
+        self,
+        predictions: np.ndarray,
+        warmup_progress: float,
+    ) -> tuple[float, float]:
+        """
+        Compute progressive thresholds with warmup.
+
+        During warmup period, blends default thresholds with dynamic thresholds
+        based on progress through the warmup period.
+
+        Parameters
+        ----------
+        predictions : np.ndarray
+            Current predictions for threshold calculation
+        warmup_progress : float
+            Progress through warmup period (0.0 to 1.0)
+
+        Returns
+        -------
+        tuple[float, float]
+            Tuple of (maxima_threshold, minima_threshold)
+        """
+        if self._prediction_count < self.MIN_CANDLES_FOR_DYNAMIC:
+            return self.DEFAULT_MAXIMA_THRESHOLD, self.DEFAULT_MINIMA_THRESHOLD
+
+        pred_df_full = self._get_historic_predictions_df()
+        dynamic_maxima, dynamic_minima = self._compute_dynamic_thresholds(pred_df_full)
+
+        maxima_threshold = (
+            self.DEFAULT_MAXIMA_THRESHOLD * (1 - warmup_progress)
+            + dynamic_maxima * warmup_progress
+        )
+        minima_threshold = (
+            self.DEFAULT_MINIMA_THRESHOLD * (1 - warmup_progress)
+            + dynamic_minima * warmup_progress
+        )
+
+        return maxima_threshold, minima_threshold
 
     def fit(self, dataset: AlphaDataset) -> None:
         """

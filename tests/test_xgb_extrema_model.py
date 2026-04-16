@@ -1,7 +1,7 @@
 import numpy as np
 import polars as pl
 import pytest
-from vnpy.alpha.model.models.xgb_extrema_model import XGBoostExtremaModel, PREDICTION_COL
+from vnpy.alpha.model.models.xgb_extrema_model import XGBoostExtremaModel, PREDICTION_COL, DEFAULT_MAXIMA_THRESHOLD, DEFAULT_MINIMA_THRESHOLD
 
 
 class TestDIValuesComputation:
@@ -65,3 +65,51 @@ class TestDynamicThresholds:
         maxima, minima = model._compute_dynamic_thresholds(pred_df)
         assert isinstance(maxima, float)
         assert isinstance(minima, float)
+
+
+class TestProgressiveThresholds:
+    """Test progressive threshold warmup mechanism"""
+
+    def test_progressive_thresholds_before_warmup(self):
+        """Test defaults before MIN_CANDLES_FOR_DYNAMIC"""
+        model = XGBoostExtremaModel()
+        model._prediction_count = 10
+
+        predictions = np.array([1.0, 2.0, 3.0])
+        warmup_progress = 0.1
+
+        maxima, minima = model._compute_progressive_thresholds(predictions, warmup_progress)
+        assert maxima == DEFAULT_MAXIMA_THRESHOLD
+        assert minima == DEFAULT_MINIMA_THRESHOLD
+
+    def test_progressive_thresholds_partial_warmup(self):
+        """Test mixing during partial warmup"""
+        model = XGBoostExtremaModel(num_candles=200)
+        model._prediction_count = 100
+
+        model._historic_predictions["test"] = pl.DataFrame().with_columns(
+            pl.Series(PREDICTION_COL, np.array([5.0, 4.0, 3.0, 2.0, 1.0]))
+        )
+
+        predictions = np.array([1.0, 2.0, 3.0])
+        warmup_progress = 0.5
+
+        maxima, minima = model._compute_progressive_thresholds(predictions, warmup_progress)
+        assert maxima != DEFAULT_MAXIMA_THRESHOLD
+        assert abs(maxima) < 10
+
+    def test_progressive_thresholds_full_warmup(self):
+        """Test dynamic thresholds after full warmup"""
+        model = XGBoostExtremaModel(num_candles=10)
+        model._prediction_count = 200
+
+        model._historic_predictions["test"] = pl.DataFrame().with_columns(
+            pl.Series(PREDICTION_COL, np.array([10.0, 8.0, 6.0, 4.0, 2.0, 0.0, -2.0, -4.0, -6.0, -8.0]))
+        )
+
+        predictions = np.array([1.0, 2.0, 3.0])
+        warmup_progress = 1.0
+
+        maxima, minima = model._compute_progressive_thresholds(predictions, warmup_progress)
+        # With num_candles=10, frequency=1, so maxima is the top value (10.0)
+        assert abs(maxima - 10.0) < 2.0
