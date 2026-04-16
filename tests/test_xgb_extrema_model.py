@@ -92,13 +92,14 @@ class TestProgressiveThresholds:
         model._prediction_count = 100
 
         model._historic_predictions["test"] = pl.DataFrame().with_columns(
-            pl.Series(PREDICTION_COL, np.array([5.0, 4.0, 3.0, 2.0, 1.0]))
+            pl.Series(PREDICTION_COL, np.array([5.0, 4.0, 3.0, 2.0, 1.0])),
+            pl.Series("DI_values", np.array([1.0, 0.8, 0.6, 0.4, 0.2])),
         )
 
-        predictions = np.array([1.0, 2.0, 3.0])
         warmup_progress = 0.5
 
-        maxima, minima = model._compute_progressive_thresholds(predictions, warmup_progress)
+        pred_df_full = model._get_historic_predictions_df()
+        maxima, minima = model._compute_progressive_thresholds(pred_df_full, warmup_progress)
         assert maxima != DEFAULT_MAXIMA_THRESHOLD
         assert abs(maxima) < 10
 
@@ -108,13 +109,14 @@ class TestProgressiveThresholds:
         model._prediction_count = 200
 
         model._historic_predictions["test"] = pl.DataFrame().with_columns(
-            pl.Series(PREDICTION_COL, np.array([10.0, 8.0, 6.0, 4.0, 2.0, 0.0, -2.0, -4.0, -6.0, -8.0]))
+            pl.Series(PREDICTION_COL, np.array([10.0, 8.0, 6.0, 4.0, 2.0, 0.0, -2.0, -4.0, -6.0, -8.0])),
+            pl.Series("DI_values", np.array([2.0, 1.6, 1.2, 0.8, 0.4, 0.0, -0.4, -0.8, -1.2, -1.6])),
         )
 
-        predictions = np.array([1.0, 2.0, 3.0])
         warmup_progress = 1.0
 
-        maxima, minima = model._compute_progressive_thresholds(predictions, warmup_progress)
+        pred_df_full = model._get_historic_predictions_df()
+        maxima, minima = model._compute_progressive_thresholds(pred_df_full, warmup_progress)
         # With num_candles=10, frequency=1, so maxima is the top value (10.0)
         assert abs(maxima - 10.0) < 2.0
 
@@ -128,10 +130,10 @@ class TestProgressiveDICutoff:
         model._prediction_count = 10
         model._exchange_candles = 0  # freqtrade compatible
 
-        di_values = np.array([1.0, 2.0, 3.0])
         warmup_progress = 0.1
 
-        cutoff, params = model._compute_progressive_di_cutoff(di_values, warmup_progress)
+        pred_df_full = model._get_historic_predictions_df()
+        cutoff, params = model._compute_progressive_di_cutoff(pred_df_full, warmup_progress)
         assert cutoff == model.DEFAULT_DI_CUTOFF
         assert params == (0.0, 0.0, 0.0)
 
@@ -141,9 +143,17 @@ class TestProgressiveDICutoff:
         model._prediction_count = 100
         model._exchange_candles = 0  # freqtrade compatible
 
+        # Create historic predictions with DI_values
         di_values = np.abs(np.random.randn(100)) + 0.5
+        model._historic_predictions["test"] = pl.DataFrame().with_columns(
+            pl.Series(PREDICTION_COL, np.random.randn(100)),
+            pl.Series("DI_values", di_values),
+        )
 
-        cutoff, params = model._compute_progressive_di_cutoff(di_values, 0.5)
+        warmup_progress = 0.5
+
+        pred_df_full = model._get_historic_predictions_df()
+        cutoff, params = model._compute_progressive_di_cutoff(pred_df_full, warmup_progress)
         assert cutoff > 0
         assert isinstance(params, tuple)
         assert len(params) == 3
@@ -154,9 +164,10 @@ class TestProgressiveDICutoff:
         model._prediction_count = 100
         model._exchange_candles = 0  # freqtrade compatible
 
-        di_values = np.array([])
+        # Empty historic predictions
+        pred_df_full = model._get_historic_predictions_df()
 
-        cutoff, params = model._compute_progressive_di_cutoff(di_values, 0.5)
+        cutoff, params = model._compute_progressive_di_cutoff(pred_df_full, 0.5)
         assert cutoff == model.DEFAULT_DI_CUTOFF
         assert params == (0.0, 0.0, 0.0)
 
@@ -425,13 +436,14 @@ class TestEdgeCases:
 
         # Use data where dynamic thresholds differ from defaults
         model._historic_predictions["test"] = pl.DataFrame().with_columns(
-            pl.Series(PREDICTION_COL, np.array([10.0, 8.0, 6.0, 4.0, 2.0]))
+            pl.Series(PREDICTION_COL, np.array([10.0, 8.0, 6.0, 4.0, 2.0])),
+            pl.Series("DI_values", np.array([2.0, 1.6, 1.2, 0.8, 0.4])),
         )
 
-        predictions = np.array([1.0, 2.0, 3.0])
         warmup_progress = model.MIN_CANDLES_FOR_DYNAMIC / model.num_candles
 
-        maxima, minima = model._compute_progressive_thresholds(predictions, warmup_progress)
+        pred_df_full = model._get_historic_predictions_df()
+        maxima, minima = model._compute_progressive_thresholds(pred_df_full, warmup_progress)
 
         # At exactly MIN_CANDLES_FOR_DYNAMIC, should compute dynamic thresholds
         # The result should be a blend, not pure defaults

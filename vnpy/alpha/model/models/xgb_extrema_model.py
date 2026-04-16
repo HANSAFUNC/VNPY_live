@@ -7,7 +7,7 @@ import numpy as np
 import polars as pl
 import scipy.stats
 import xgboost as xgb
-
+from xgboost import XGBRegressor
 from vnpy.alpha.dataset import AlphaDataset, Segment
 from vnpy.alpha.model import AlphaModel
 
@@ -201,24 +201,46 @@ class XGBoostExtremaModel(AlphaModel):
 
         return float(max_pred), float(min_pred)
 
-    def _get_historic_predictions_df(self) -> pl.DataFrame:
+    def _get_historic_predictions_df(self, symbol: str | None = None) -> pl.DataFrame:
         """
-        Merge all historic predictions across symbols.
+        Merge all historic predictions across symbols with window limit.
+
+        Uses tail(num_candles) to limit to recent predictions (freqtrade compatible).
+
+        Parameters
+        ----------
+        symbol : str | None
+            Optional symbol to filter. If None, merges all symbols.
 
         Returns
         -------
         pl.DataFrame
-            DataFrame containing all historic predictions in PREDICTION_COL column
+            DataFrame containing historic predictions limited to num_candles,
+            in PREDICTION_COL column
         """
         if not self._historic_predictions:
             return pl.DataFrame().with_columns(
                 pl.Series(self.PREDICTION_COL, [])
             )
-        return pl.concat(list(self._historic_predictions.values()))
+
+        if symbol is not None:
+            if symbol not in self._historic_predictions:
+                return pl.DataFrame().with_columns(
+                    pl.Series(self.PREDICTION_COL, [])
+                )
+            pred_df = self._historic_predictions[symbol]
+        else:
+            pred_df = pl.concat(list(self._historic_predictions.values()))
+
+        # Apply tail(num_candles) window limit (freqtrade compatible)
+        if len(pred_df) > self.num_candles:
+            pred_df = pred_df.tail(self.num_candles)
+
+        return pred_df
 
     def _compute_progressive_thresholds(
         self,
-        predictions: np.ndarray,
+        pred_df_full: pl.DataFrame,
         warmup_progress: float,
     ) -> tuple[float, float]:
         """
@@ -229,8 +251,8 @@ class XGBoostExtremaModel(AlphaModel):
 
         Parameters
         ----------
-        predictions : np.ndarray
-            Current predictions for threshold calculation
+        pred_df_full : pl.DataFrame
+            DataFrame containing historical predictions
         warmup_progress : float
             Progress through warmup period (0.0 to 1.0)
 
@@ -242,7 +264,6 @@ class XGBoostExtremaModel(AlphaModel):
         if self._prediction_count < self.MIN_CANDLES_FOR_DYNAMIC:
             return self.DEFAULT_MAXIMA_THRESHOLD, self.DEFAULT_MINIMA_THRESHOLD
 
-        pred_df_full = self._get_historic_predictions_df()
         dynamic_maxima, dynamic_minima = self._compute_dynamic_thresholds(pred_df_full)
 
         maxima_threshold = (
@@ -258,19 +279,19 @@ class XGBoostExtremaModel(AlphaModel):
 
     def _compute_progressive_di_cutoff(
         self,
-        di_values: np.ndarray,
+        pred_df_full: pl.DataFrame,
         warmup_progress: float,
     ) -> tuple[float, tuple[float, float, float]]:
         """
         Compute progressive DI cutoff using Weibull distribution.
 
         During warmup period, blends default DI cutoff with dynamic cutoff
-        computed from Weibull distribution fitting of DI values.
+        computed from Weibull distribution fitting of historical DI values.
 
         Parameters
         ----------
-        di_values : np.ndarray
-            DI values for Weibull fitting
+        pred_df_full : pl.DataFrame
+            DataFrame containing historical DI_values column
         warmup_progress : float
             Progress through warmup period (0.0 to 1.0)
 
@@ -284,11 +305,18 @@ class XGBoostExtremaModel(AlphaModel):
         if self._prediction_count < self.MIN_CANDLES_FOR_DYNAMIC:
             return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
 
+        # Extract DI values from historical predictions (freqtrade compatible)
+        if "DI_values" not in pred_df_full.columns or len(pred_df_full) < 10:
+            return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
+
+        di_values = pred_df_full["DI_values"].to_numpy()
+        di_values = di_values[~np.isnan(di_values)]  # Drop NaN values
+
         if len(di_values) < 10:
             return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
 
         try:
-            # Fit Weibull distribution to DI values
+            # Fit Weibull distribution to historical DI values
             f = scipy.stats.weibull_min.fit(di_values)
             dynamic_cutoff = scipy.stats.weibull_min.ppf(0.999, *f)
 
@@ -377,13 +405,38 @@ class XGBoostExtremaModel(AlphaModel):
 
         self._prediction_count += len(predictions)
 
+        # Compute DI values for current batch
         di_values = self._compute_di_values(predictions)
 
-        # Calculate new predictions since model start (freqtrade warmup logic)
+        # Build initial result_df with predictions and DI values
+        result_df = pl.DataFrame().with_columns(
+            df["vt_symbol"].alias("vt_symbol"),
+            df["datetime"].alias("datetime"),
+            pl.Series(predictions).alias(self.PREDICTION_COL),
+            pl.Series(di_values).alias("DI_values"),
+        )
+
+        # Store predictions by symbol for historic tracking BEFORE computing thresholds
+        symbols = df["vt_symbol"].to_numpy()
+        unique_symbols = np.unique(symbols)
+
+        for symbol in unique_symbols:
+            symbol_df = result_df.filter(pl.col("vt_symbol") == symbol)
+            if symbol not in self._historic_predictions:
+                self._historic_predictions[symbol] = symbol_df
+            else:
+                self._historic_predictions[symbol] = pl.concat(
+                    [self._historic_predictions[symbol], symbol_df]
+                )
+
+        # Get historic predictions with window limit (freqtrade compatible)
+        pred_df_full = self._get_historic_predictions_df()
+
+        # Calculate warmup progress (freqtrade style)
         new_predictions = self._prediction_count - self._exchange_candles
         warmup_progress = min(1.0, max(0.0, new_predictions / self.num_candles))
 
-        # Log warmup progress (freqtrade style)
+        # Log warmup progress
         if warmup_progress < 1.0:
             progress_pct = int(warmup_progress * 100)
             candles_needed = self.num_candles - new_predictions
@@ -396,41 +449,38 @@ class XGBoostExtremaModel(AlphaModel):
             logger = logging.getLogger(__name__)
             logger.info(f"Threshold warmup complete, total {new_predictions} new candles")
 
+        # Compute thresholds using stored historic predictions (freqtrade compatible)
         maxima_threshold, minima_threshold = self._compute_progressive_thresholds(
-            predictions, warmup_progress
+            pred_df_full, warmup_progress
         )
         di_cutoff, di_params = self._compute_progressive_di_cutoff(
-            di_values, warmup_progress
+            pred_df_full, warmup_progress
         )
 
-        result_df = pl.DataFrame().with_columns(
-            df["vt_symbol"].alias("vt_symbol"),
-            df["datetime"].alias("datetime"),
-            pl.Series(predictions).alias(self.PREDICTION_COL),
+        # Compute DI stats for storage (freqtrade compatible)
+        di_mean = pred_df_full["DI_values"].mean() if len(pred_df_full) > 0 else 0.0
+        di_std = pred_df_full["DI_values"].std() if len(pred_df_full) > 0 else 0.0
+        if di_std is None or np.isnan(di_std):
+            di_std = 0.0
+        if di_mean is None or np.isnan(di_mean):
+            di_mean = 0.0
+
+        # Add threshold columns to result_df
+        result_df = result_df.with_columns(
             pl.Series([maxima_threshold] * len(predictions)).alias("&s-maxima_sort_threshold"),
             pl.Series([minima_threshold] * len(predictions)).alias("&s-minima_sort_threshold"),
-            pl.Series(di_values).alias("DI_values"),
             pl.Series([di_cutoff] * len(predictions)).alias("DI_cutoff"),
             pl.Series([di_params[0]] * len(predictions)).alias("DI_value_param1"),
             pl.Series([di_params[1]] * len(predictions)).alias("DI_value_param2"),
             pl.Series([di_params[2]] * len(predictions)).alias("DI_value_param3"),
+            pl.Series([di_mean] * len(predictions)).alias("DI_value_mean"),
+            pl.Series([di_std] * len(predictions)).alias("DI_value_std"),
+            # Labels stats initialized to 0 (freqtrade compatible)
+            pl.Series([0.0] * len(predictions)).alias("labels_mean"),
+            pl.Series([0.0] * len(predictions)).alias("labels_std"),
         )
 
         self._last_result_df = result_df
-
-        # Store predictions by symbol for historic tracking
-        symbols = df["vt_symbol"].to_numpy()
-        unique_symbols = np.unique(symbols)
-
-        for symbol in unique_symbols:
-            mask = symbols == symbol
-            symbol_df = result_df.filter(pl.col("vt_symbol") == symbol)
-            if symbol not in self._historic_predictions:
-                self._historic_predictions[symbol] = symbol_df
-            else:
-                self._historic_predictions[symbol] = pl.concat(
-                    [self._historic_predictions[symbol], symbol_df]
-                )
 
         logger = logging.getLogger(__name__)
         logger.info(
