@@ -115,6 +115,7 @@ class XGBoostExtremaModel(AlphaModel):
             "maxima": maxima_threshold,
             "minima": abs(minima_threshold),
         }
+        self._last_result_df: pl.DataFrame | None = None
 
     def _compute_di_values(self, predictions: np.ndarray) -> np.ndarray:
         """
@@ -337,7 +338,7 @@ class XGBoostExtremaModel(AlphaModel):
 
     def predict(self, dataset: AlphaDataset, segment: Segment) -> np.ndarray:
         """
-        Make predictions using the trained model.
+        Make predictions using the trained model with threshold calculation.
 
         Parameters
         ----------
@@ -353,12 +354,81 @@ class XGBoostExtremaModel(AlphaModel):
 
         Raises
         ------
-        NotImplementedError
-            This method is a placeholder for Task 1 skeleton
         ValueError
             If the model has not been fitted yet
         """
-        raise NotImplementedError("predict method to be implemented in Task 2")
+        if self.model is None:
+            raise ValueError("Model not fitted. Call fit() first.")
+
+        df = dataset.fetch_infer(segment)
+        df = df.sort(["datetime", "vt_symbol"])
+
+        feature_cols = df.columns[2:-1] if "label" in df.columns else df.columns[2:]
+        data = df.select(feature_cols).to_numpy()
+
+        predictions = self.model.predict(xgb.DMatrix(data))
+
+        self._prediction_count += len(predictions)
+
+        di_values = self._compute_di_values(predictions)
+
+        warmup_progress = min(1.0, max(0.0, self._prediction_count / self.num_candles))
+
+        maxima_threshold, minima_threshold = self._compute_progressive_thresholds(
+            predictions, warmup_progress
+        )
+        di_cutoff, di_params = self._compute_progressive_di_cutoff(
+            di_values, warmup_progress
+        )
+
+        result_df = pl.DataFrame().with_columns(
+            df["vt_symbol"].alias("vt_symbol"),
+            df["datetime"].alias("datetime"),
+            pl.Series(predictions).alias(self.PREDICTION_COL),
+            pl.Series([maxima_threshold] * len(predictions)).alias("&s-maxima_sort_threshold"),
+            pl.Series([minima_threshold] * len(predictions)).alias("&s-minima_sort_threshold"),
+            pl.Series(di_values).alias("DI_values"),
+            pl.Series([di_cutoff] * len(predictions)).alias("DI_cutoff"),
+            pl.Series([di_params[0]] * len(predictions)).alias("DI_value_param1"),
+            pl.Series([di_params[1]] * len(predictions)).alias("DI_value_param2"),
+            pl.Series([di_params[2]] * len(predictions)).alias("DI_value_param3"),
+        )
+
+        self._last_result_df = result_df
+
+        # Store predictions by symbol for historic tracking
+        symbols = df["vt_symbol"].to_numpy()
+        unique_symbols = np.unique(symbols)
+
+        for symbol in unique_symbols:
+            mask = symbols == symbol
+            symbol_df = result_df.filter(pl.col("vt_symbol") == symbol)
+            if symbol not in self._historic_predictions:
+                self._historic_predictions[symbol] = symbol_df
+            else:
+                self._historic_predictions[symbol] = pl.concat(
+                    [self._historic_predictions[symbol], symbol_df]
+                )
+
+        logger = logging.getLogger(__name__)
+        logger.info(
+            f"Predicted {len(predictions)} samples, warmup: {int(warmup_progress * 100)}%, "
+            f"thresholds: ({maxima_threshold:.2f}, {minima_threshold:.2f})"
+        )
+
+        return predictions
+
+    def get_result_df(self) -> pl.DataFrame | None:
+        """
+        Get full prediction result DataFrame.
+
+        Returns
+        -------
+        pl.DataFrame | None
+            DataFrame containing all prediction results with thresholds,
+            or None if predict() has not been called yet
+        """
+        return self._last_result_df
 
     def _update_progressive_thresholds(self, di_values: np.ndarray) -> None:
         """

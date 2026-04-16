@@ -199,3 +199,99 @@ class TestModelTraining:
 
         assert model.model is not None
         assert isinstance(model.model, xgb.Booster)
+
+
+class TestModelPrediction:
+    """Test model prediction with thresholds"""
+
+    def test_predict_returns_ndarray(self):
+        """Test predict returns numpy array"""
+        model = XGBoostExtremaModel(n_estimators=10)
+
+        train_df = pl.DataFrame().with_columns(
+            pl.date_range(start=pl.date(2024, 1, 1), end=pl.date(2024, 1, 10), interval="1d").alias("datetime"),
+            pl.lit("AAPL").alias("vt_symbol"),
+            pl.Series(np.random.randn(10)).alias("feature1"),
+            pl.Series(np.random.randn(10)).alias("feature2"),
+            pl.Series(np.random.randn(10)).alias("label"),
+        )
+
+        valid_df = pl.DataFrame().with_columns(
+            pl.date_range(start=pl.date(2024, 1, 11), end=pl.date(2024, 1, 15), interval="1d").alias("datetime"),
+            pl.lit("AAPL").alias("vt_symbol"),
+            pl.Series(np.random.randn(5)).alias("feature1"),
+            pl.Series(np.random.randn(5)).alias("feature2"),
+            pl.Series(np.random.randn(5)).alias("label"),
+        )
+
+        test_df = pl.DataFrame().with_columns(
+            pl.date_range(start=pl.date(2024, 1, 16), end=pl.date(2024, 1, 20), interval="1d").alias("datetime"),
+            pl.lit("AAPL").alias("vt_symbol"),
+            pl.Series(np.random.randn(5)).alias("feature1"),
+            pl.Series(np.random.randn(5)).alias("feature2"),
+            pl.Series(np.random.randn(5)).alias("label"),
+        )
+
+        dataset = MagicMock(spec=AlphaDataset)
+        dataset.fetch_learn.side_effect = lambda segment: (
+            train_df if segment == Segment.TRAIN else valid_df
+        )
+        dataset.fetch_infer.return_value = test_df
+
+        model.fit(dataset)
+        predictions = model.predict(dataset, Segment.TEST)
+
+        assert isinstance(predictions, np.ndarray)
+        assert len(predictions) == 5
+
+    def test_predict_stores_result_df(self):
+        """Test predict stores full result DataFrame"""
+        model = XGBoostExtremaModel(n_estimators=10)
+
+        train_df = pl.DataFrame().with_columns(
+            pl.date_range(start=pl.date(2024, 1, 1), end=pl.date(2024, 1, 10), interval="1d").alias("datetime"),
+            pl.lit("AAPL").alias("vt_symbol"),
+            pl.Series(np.random.randn(10)).alias("feature1"),
+            pl.Series(np.random.randn(10)).alias("feature2"),
+            pl.Series(np.random.randn(10)).alias("label"),
+        )
+
+        valid_df = pl.DataFrame().with_columns(
+            pl.date_range(start=pl.date(2024, 1, 11), end=pl.date(2024, 1, 15), interval="1d").alias("datetime"),
+            pl.lit("AAPL").alias("vt_symbol"),
+            pl.Series(np.random.randn(5)).alias("feature1"),
+            pl.Series(np.random.randn(5)).alias("feature2"),
+            pl.Series(np.random.randn(5)).alias("label"),
+        )
+
+        test_df = pl.DataFrame().with_columns(
+            pl.date_range(start=pl.date(2024, 1, 16), end=pl.date(2024, 1, 20), interval="1d").alias("datetime"),
+            pl.lit("AAPL").alias("vt_symbol"),
+            pl.Series(np.random.randn(5)).alias("feature1"),
+            pl.Series(np.random.randn(5)).alias("feature2"),
+            pl.Series(np.random.randn(5)).alias("label"),
+        )
+
+        dataset = MagicMock(spec=AlphaDataset)
+        dataset.fetch_learn.side_effect = lambda segment: (
+            train_df if segment == Segment.TRAIN else valid_df
+        )
+        dataset.fetch_infer.return_value = test_df
+
+        model.fit(dataset)
+        predictions = model.predict(dataset, Segment.TEST)
+
+        result_df = model.get_result_df()
+
+        assert result_df is not None
+        assert "&s-extrema" in result_df.columns
+        assert "DI_values" in result_df.columns
+
+    def test_predict_raises_when_not_fitted(self):
+        """Test predict raises ValueError when model not fitted"""
+        model = XGBoostExtremaModel()
+
+        dataset = MagicMock(spec=AlphaDataset)
+
+        with pytest.raises(ValueError, match="Model not fitted"):
+            model.predict(dataset, Segment.TEST)
