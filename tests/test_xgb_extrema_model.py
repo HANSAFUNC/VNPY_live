@@ -1,7 +1,11 @@
 import numpy as np
 import polars as pl
 import pytest
+from unittest.mock import MagicMock
+import xgboost as xgb
+from datetime import datetime
 from vnpy.alpha.model.models.xgb_extrema_model import XGBoostExtremaModel, PREDICTION_COL, DEFAULT_MAXIMA_THRESHOLD, DEFAULT_MINIMA_THRESHOLD
+from vnpy.alpha.dataset import AlphaDataset, Segment
 
 
 class TestDIValuesComputation:
@@ -152,3 +156,46 @@ class TestProgressiveDICutoff:
         cutoff, params = model._compute_progressive_di_cutoff(di_values, 0.5)
         assert cutoff == model.DEFAULT_DI_CUTOFF
         assert params == (0.0, 0.0, 0.0)
+
+
+class TestModelTraining:
+    """Test model training"""
+
+    def test_fit_creates_model(self):
+        """Test that fit creates a model instance"""
+        model = XGBoostExtremaModel(n_estimators=10)
+
+        dataset = MagicMock(spec=AlphaDataset)
+
+        # Create training data
+        train_data = []
+        for i in range(1, 6):
+            train_data.append({
+                "datetime": datetime(2024, 1, i),
+                "vt_symbol": "AAPL",
+                "feature1": np.random.randn(),
+                "feature2": np.random.randn(),
+                "label": np.random.randn(),
+            })
+        train_df = pl.DataFrame(train_data)
+
+        # Create validation data
+        valid_data = []
+        for i in range(6, 9):
+            valid_data.append({
+                "datetime": datetime(2024, 1, i),
+                "vt_symbol": "AAPL",
+                "feature1": np.random.randn(),
+                "feature2": np.random.randn(),
+                "label": np.random.randn(),
+            })
+        valid_df = pl.DataFrame(valid_data)
+
+        dataset.fetch_learn.side_effect = lambda segment: (
+            train_df if segment == Segment.TRAIN else valid_df
+        )
+
+        model.fit(dataset)
+
+        assert model.model is not None
+        assert isinstance(model.model, xgb.Booster)

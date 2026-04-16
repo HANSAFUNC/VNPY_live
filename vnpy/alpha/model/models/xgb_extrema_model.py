@@ -320,13 +320,20 @@ class XGBoostExtremaModel(AlphaModel):
         Returns
         -------
         None
-
-        Raises
-        ------
-        NotImplementedError
-            This method is a placeholder for Task 1 skeleton
         """
-        raise NotImplementedError("fit method to be implemented in Task 2")
+        dtrain, dvalid = self._prepare_data(dataset)
+
+        self.model = xgb.train(
+            self.params,
+            dtrain,
+            num_boost_round=self.n_estimators,
+            evals=[(dtrain, "train"), (dvalid, "valid")],
+            early_stopping_rounds=self.early_stopping_rounds,
+            verbose_eval=False
+        )
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"Model trained with {self.model.num_boosted_rounds()} rounds")
 
     def predict(self, dataset: AlphaDataset, segment: Segment) -> np.ndarray:
         """
@@ -396,14 +403,29 @@ class XGBoostExtremaModel(AlphaModel):
         Returns
         -------
         tuple
-            Tuple of (X_train, y_train, X_valid, y_valid) as numpy arrays
+            Tuple of (dtrain, dvalid) as xgb.DMatrix objects
 
         Raises
         ------
-        NotImplementedError
-            This method is a placeholder for Task 2
+        ValueError
+            If data preparation fails
         """
-        raise NotImplementedError("_prepare_data method to be implemented in Task 2")
+        dtrain: xgb.DMatrix
+        dvalid: xgb.DMatrix
+
+        for segment in [Segment.TRAIN, Segment.VALID]:
+            df = dataset.fetch_learn(segment)
+            df = df.sort(["datetime", "vt_symbol"])
+            feature_cols = df.columns[2:-1]
+            data = df.select(feature_cols).to_numpy()
+            label = df["label"].to_numpy()
+
+            if segment == Segment.TRAIN:
+                dtrain = xgb.DMatrix(data, label=label)
+            else:
+                dvalid = xgb.DMatrix(data, label=label)
+
+        return dtrain, dvalid
 
     def detail(self) -> None:
         """
