@@ -21,6 +21,8 @@ class QuickAdapterV5Dataset(AlphaDataset):
         valid_period: tuple[str, str],
         test_period: tuple[str, str],
         periods: list[int] = [10, 20, 30, 40, 50],
+        label_period_candles: int = 10,
+        use_extrema_label: bool = False,
     ) -> None:
         """Constructor
 
@@ -36,6 +38,10 @@ class QuickAdapterV5Dataset(AlphaDataset):
             Test period
         periods : list[int]
             Periods for expand_all features
+        label_period_candles : int
+            Period for extrema detection (freqtrade compatible)
+        use_extrema_label : bool
+            If True, use extrema labels (-1/1). If False, use future returns.
         """
         super().__init__(
             df=df,
@@ -45,9 +51,15 @@ class QuickAdapterV5Dataset(AlphaDataset):
         )
 
         self.periods = periods
+        self.label_period_candles = label_period_candles
+        self.use_extrema_label = use_extrema_label
 
         # Compute features using pandas (freqtrade style)
         feature_df = self._compute_features_pandas()
+
+        # Compute extrema targets if needed (freqtrade style)
+        if use_extrema_label:
+            feature_df = self._set_freqai_targets(feature_df)
 
         # Add each feature as result DataFrame
         for col in feature_df.columns:
@@ -55,8 +67,16 @@ class QuickAdapterV5Dataset(AlphaDataset):
                 feat_df = feature_df.select(["datetime", "vt_symbol", col]).rename({col: "data"})
                 self.add_feature(col, result=feat_df)
 
-        # Set label
-        self.set_label("ts_delay(close, -3) / ts_delay(close, -1) - 1")
+        # Set label based on mode
+        if use_extrema_label:
+            # Use extrema labels computed in pandas
+            extrema_df = feature_df.select(["datetime", "vt_symbol", "&s-extrema"]).rename({"&s-extrema": "data"})
+            self.add_feature("label", result=extrema_df)
+            # Store extrema columns for later use
+            self._extrema_df = feature_df.select(["datetime", "vt_symbol", "minima", "maxima", "&s-extrema"])
+        else:
+            # Use future returns label
+            self.set_label("ts_delay(close, -3) / ts_delay(close, -1) - 1")
 
     def _compute_features_pandas(self) -> pl.DataFrame:
         """Compute all features using pandas/talib (freqtrade style)"""
@@ -170,6 +190,61 @@ class QuickAdapterV5Dataset(AlphaDataset):
         """Add time features (freqtrade style)"""
         dataframe[f"%-day_of_week"] = (dataframe["datetime"].dt.weekday + 1) / 7
         dataframe[f"%-hour_of_day"] = (dataframe["datetime"].dt.hour + 1) / 25
+        return dataframe
+
+    def _set_freqai_targets(self, dataframe: pd.DataFrame, **kwargs) -> pd.DataFrame:
+        """Set extrema targets (freqtrade style)
+
+        Uses argrelextrema to find local minima and maxima.
+        Labels are smoothed with gaussian rolling window.
+
+        Parameters
+        ----------
+        dataframe : pd.DataFrame
+            OHLCV data for a single symbol
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with added columns:
+            - &s-extrema: extrema labels (-1 for minima, 1 for maxima, smoothed)
+            - minima: binary indicator for minima points
+            - maxima: binary indicator for maxima points
+        """
+        # Initialize extrema column
+        dataframe["&s-extrema"] = 0
+
+        # Find local minima (using low prices)
+        min_peaks = argrelextrema(
+            dataframe["low"].values,
+            np.less,
+            order=self.label_period_candles
+        )
+
+        # Find local maxima (using high prices)
+        max_peaks = argrelextrema(
+            dataframe["high"].values,
+            np.greater,
+            order=self.label_period_candles
+        )
+
+        # Mark minima points
+        for mp in min_peaks[0]:
+            dataframe.at[mp, "&s-extrema"] = -1
+
+        # Mark maxima points
+        for mp in max_peaks[0]:
+            dataframe.at[mp, "&s-extrema"] = 1
+
+        # Create binary indicator columns
+        dataframe["minima"] = np.where(dataframe["&s-extrema"] == -1, 1, 0)
+        dataframe["maxima"] = np.where(dataframe["&s-extrema"] == 1, 1, 0)
+
+        # Smooth extrema labels with gaussian window (freqtrade style)
+        dataframe['&s-extrema'] = dataframe['&s-extrema'].rolling(
+            window=5, win_type='gaussian', center=True
+        ).mean(std=0.5)
+
         return dataframe
 
 
