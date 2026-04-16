@@ -22,7 +22,6 @@ class QuickAdapterV5Dataset(AlphaDataset):
         test_period: tuple[str, str],
         periods: list[int] = [10, 20, 30, 40, 50],
         label_period_candles: int = 10,
-        use_extrema_label: bool = False,
     ) -> None:
         """Constructor
 
@@ -40,8 +39,6 @@ class QuickAdapterV5Dataset(AlphaDataset):
             Periods for expand_all features
         label_period_candles : int
             Period for extrema detection (freqtrade compatible)
-        use_extrema_label : bool
-            If True, use extrema labels (-1/1). If False, use future returns.
         """
         super().__init__(
             df=df,
@@ -52,14 +49,12 @@ class QuickAdapterV5Dataset(AlphaDataset):
 
         self.periods = periods
         self.label_period_candles = label_period_candles
-        self.use_extrema_label = use_extrema_label
 
         # Compute features using pandas (freqtrade style)
         feature_df = self._compute_features_pandas()
 
-        # Compute extrema targets if needed (freqtrade style)
-        if use_extrema_label:
-            feature_df = self._set_freqai_targets(feature_df)
+        # Compute extrema targets (freqtrade style)
+        feature_df = self._set_freqai_targets(feature_df)
 
         # Add each feature as result DataFrame
         for col in feature_df.columns:
@@ -67,17 +62,12 @@ class QuickAdapterV5Dataset(AlphaDataset):
                 feat_df = feature_df.select(["datetime", "vt_symbol", col]).rename({col: "data"})
                 self.add_feature(col, result=feat_df)
 
-        # Set label based on mode
-        if use_extrema_label:
-            # Use extrema labels computed in pandas (freqtrade naming)
-            extrema_df = feature_df.select(["datetime", "vt_symbol", "&s-extrema"]).rename({"&s-extrema": "data"})
-            self.add_feature("&s-extrema", result=extrema_df)
-            # Store extrema columns for later use
-            self._extrema_df = feature_df.select(["datetime", "vt_symbol", "minima", "maxima", "&s-extrema"])
-            # Set label expression to point to the extrema column
-            self.label_expression = "&s-extrema"
-        else:
-            # Use future returns label
+        # Set extrema label (freqtrade naming)
+        extrema_df = feature_df.select(["datetime", "vt_symbol", "&s-extrema"]).rename({"&s-extrema": "data"})
+        self.add_feature("&s-extrema", result=extrema_df)
+
+        # Store extrema columns for later use
+        self._extrema_df = feature_df.select(["datetime", "vt_symbol", "minima", "maxima", "&s-extrema"])
             self.set_label("ts_delay(close, -3) / ts_delay(close, -1) - 1")
 
     def _compute_features_pandas(self) -> pl.DataFrame:
