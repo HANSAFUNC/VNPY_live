@@ -7,7 +7,6 @@ import numpy as np
 import polars as pl
 import scipy.stats
 import xgboost as xgb
-from xgboost import XGBRegressor
 from vnpy.alpha.dataset import AlphaDataset, Segment
 from vnpy.alpha.model import AlphaModel
 
