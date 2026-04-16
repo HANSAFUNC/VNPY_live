@@ -295,3 +295,57 @@ class TestModelPrediction:
 
         with pytest.raises(ValueError, match="Model not fitted"):
             model.predict(dataset, Segment.TEST)
+
+
+class TestEdgeCases:
+    """Test edge cases and error handling"""
+
+    def test_get_result_df_none_before_predict(self):
+        """Test get_result_df returns None before any prediction"""
+        model = XGBoostExtremaModel()
+
+        result = model.get_result_df()
+
+        assert result is None
+
+    def test_get_historic_predictions_empty(self):
+        """Test _get_historic_predictions_df with empty dict"""
+        model = XGBoostExtremaModel()
+
+        result = model._get_historic_predictions_df()
+
+        assert len(result) == 0
+
+    def test_compute_dynamic_thresholds_with_nan(self):
+        """Test dynamic thresholds handles NaN values"""
+        model = XGBoostExtremaModel()
+
+        pred_df = pl.DataFrame().with_columns(
+            pl.Series(PREDICTION_COL, [np.nan, np.nan, np.nan])
+        )
+
+        maxima, minima = model._compute_dynamic_thresholds(pred_df)
+
+        # Should return defaults for NaN data
+        assert maxima == DEFAULT_MAXIMA_THRESHOLD
+        assert minima == DEFAULT_MINIMA_THRESHOLD
+
+    def test_progressive_thresholds_exactly_at_min_candles(self):
+        """Test behavior exactly at MIN_CANDLES_FOR_DYNAMIC boundary"""
+        model = XGBoostExtremaModel()
+        model._prediction_count = model.MIN_CANDLES_FOR_DYNAMIC  # Exactly 50
+
+        # Use data where dynamic thresholds differ from defaults
+        model._historic_predictions["test"] = pl.DataFrame().with_columns(
+            pl.Series(PREDICTION_COL, np.array([10.0, 8.0, 6.0, 4.0, 2.0]))
+        )
+
+        predictions = np.array([1.0, 2.0, 3.0])
+        warmup_progress = model.MIN_CANDLES_FOR_DYNAMIC / model.num_candles
+
+        maxima, minima = model._compute_progressive_thresholds(predictions, warmup_progress)
+
+        # At exactly MIN_CANDLES_FOR_DYNAMIC, should compute dynamic thresholds
+        # The result should be a blend, not pure defaults
+        # Allow reasonable range for the calculation
+        assert maxima > DEFAULT_MAXIMA_THRESHOLD  # Should be higher than default
