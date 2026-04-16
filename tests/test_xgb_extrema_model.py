@@ -2,7 +2,7 @@ import numpy as np
 import polars as pl
 import pytest
 from unittest.mock import MagicMock
-import xgboost as xgb
+from xgboost import XGBRegressor
 from datetime import datetime
 from vnpy.alpha.model.models.xgb_extrema_model import XGBoostExtremaModel, PREDICTION_COL, DEFAULT_MAXIMA_THRESHOLD, DEFAULT_MINIMA_THRESHOLD
 from vnpy.alpha.dataset import AlphaDataset, Segment
@@ -297,7 +297,7 @@ class TestModelTraining:
         model.fit(dataset)
 
         assert model.model is not None
-        assert isinstance(model.model, xgb.Booster)
+        assert isinstance(model.model, XGBRegressor)
 
 
 class TestModelPrediction:

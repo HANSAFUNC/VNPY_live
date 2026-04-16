@@ -7,6 +7,7 @@ import numpy as np
 import polars as pl
 import scipy.stats
 import xgboost as xgb
+from xgboost import XGBRegressor
 from vnpy.alpha.dataset import AlphaDataset, Segment
 from vnpy.alpha.model import AlphaModel
 
@@ -103,7 +104,7 @@ class XGBoostExtremaModel(AlphaModel):
         self.label_period_candles: int = label_period_candles
 
         # Model state
-        self.model: xgb.Booster | None = None
+        self.model: XGBRegressor | None = None
         self._feature_names: list[str] | None = None
 
         # State tracking for progressive thresholds (freqtrade compatible)
@@ -350,19 +351,27 @@ class XGBoostExtremaModel(AlphaModel):
         -------
         None
         """
-        dtrain, dvalid = self._prepare_data(dataset)
+        X_train, y_train, X_valid, y_valid = self._prepare_data(dataset)
 
-        self.model = xgb.train(
-            self.params,
-            dtrain,
-            num_boost_round=self.n_estimators,
-            evals=[(dtrain, "train"), (dvalid, "valid")],
+        self.model = XGBRegressor(
+            objective="reg:squarederror",
+            learning_rate=self.params["learning_rate"],
+            max_depth=self.params["max_depth"],
+            n_estimators=self.n_estimators,
+            random_state=self.params["seed"],
+            eval_metric=self.eval_metric,
             early_stopping_rounds=self.early_stopping_rounds,
-            verbose_eval=False
+        )
+
+        self.model.fit(
+            X_train,
+            y_train,
+            eval_set=[(X_train, y_train), (X_valid, y_valid)],
+            verbose=False,
         )
 
         logger = logging.getLogger(__name__)
-        logger.info(f"Model trained with {self.model.num_boosted_rounds()} rounds")
+        logger.info(f"Model trained with {self.model.best_iteration + 1} rounds")
 
     def predict(self, dataset: AlphaDataset, segment: Segment) -> np.ndarray:
         """
@@ -394,7 +403,7 @@ class XGBoostExtremaModel(AlphaModel):
         feature_cols = df.columns[2:-1] if "label" in df.columns else df.columns[2:]
         data = df.select(feature_cols).to_numpy()
 
-        predictions = self.model.predict(xgb.DMatrix(data))
+        predictions = self.model.predict(data)
 
         # Record initial exchange candles count (freqtrade compatible)
         if self._exchange_candles is None:
@@ -513,15 +522,17 @@ class XGBoostExtremaModel(AlphaModel):
         Returns
         -------
         tuple
-            Tuple of (dtrain, dvalid) as xgb.DMatrix objects
+            Tuple of (X_train, y_train, X_valid, y_valid) as numpy arrays
 
         Raises
         ------
         ValueError
             If data preparation fails
         """
-        dtrain: xgb.DMatrix
-        dvalid: xgb.DMatrix
+        X_train: np.ndarray
+        y_train: np.ndarray
+        X_valid: np.ndarray
+        y_valid: np.ndarray
 
         for segment in [Segment.TRAIN, Segment.VALID]:
             df = dataset.fetch_learn(segment)
@@ -531,11 +542,14 @@ class XGBoostExtremaModel(AlphaModel):
             label = df["label"].to_numpy()
 
             if segment == Segment.TRAIN:
-                dtrain = xgb.DMatrix(data, label=label)
+                X_train = data
+                y_train = label
+                self._feature_names = feature_cols
             else:
-                dvalid = xgb.DMatrix(data, label=label)
+                X_valid = data
+                y_valid = label
 
-        return dtrain, dvalid
+        return X_train, y_train, X_valid, y_valid
 
     def detail(self) -> None:
         """
@@ -550,7 +564,7 @@ class XGBoostExtremaModel(AlphaModel):
             return
 
         # Get feature importance
-        importance = self.model.get_score(importance_type="gain")
+        importance = self.model.get_booster().get_score(importance_type="gain")
         logging.info("Feature importance (gain):")
         for feat, score in sorted(importance.items(), key=lambda x: x[1], reverse=True)[:20]:
             logging.info(f"  {feat}: {score:.4f}")
