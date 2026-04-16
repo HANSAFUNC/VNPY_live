@@ -69,11 +69,13 @@ class QuickAdapterV5Dataset(AlphaDataset):
 
         # Set label based on mode
         if use_extrema_label:
-            # Use extrema labels computed in pandas
+            # Use extrema labels computed in pandas (freqtrade naming)
             extrema_df = feature_df.select(["datetime", "vt_symbol", "&s-extrema"]).rename({"&s-extrema": "data"})
-            self.add_feature("label", result=extrema_df)
+            self.add_feature("&s-extrema", result=extrema_df)
             # Store extrema columns for later use
             self._extrema_df = feature_df.select(["datetime", "vt_symbol", "minima", "maxima", "&s-extrema"])
+            # Set label expression to point to the extrema column
+            self.label_expression = "&s-extrema"
         else:
             # Use future returns label
             self.set_label("ts_delay(close, -3) / ts_delay(close, -1) - 1")
