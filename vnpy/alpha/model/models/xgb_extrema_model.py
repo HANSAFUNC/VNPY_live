@@ -512,7 +512,9 @@ class XGBoostExtremaModel(AlphaModel):
 
     def _prepare_data(self, dataset: AlphaDataset) -> tuple:
         """
-        Prepare data for training and validation.
+        Prepare data for training and validation (freqtrade style).
+
+        Automatically identifies label columns by '&' prefix (freqtrade convention).
 
         Parameters
         ----------
@@ -527,22 +529,27 @@ class XGBoostExtremaModel(AlphaModel):
         Raises
         ------
         ValueError
-            If data preparation fails
+            If no label column found or data preparation fails
         """
         X_train: np.ndarray
         y_train: np.ndarray
         X_valid: np.ndarray
         y_valid: np.ndarray
 
-        # Determine label column: freqtrade uses &s-extrema, VNPY uses label
-        label_col = "&s-extrema"  # freqtrade naming convention
-
         for segment in [Segment.TRAIN, Segment.VALID]:
             df = dataset.fetch_learn(segment)
             df = df.sort(["datetime", "vt_symbol"])
 
-            # Feature columns: all columns after datetime/vt_symbol, excluding label
-            feature_cols = [col for col in df.columns[2:] if col != label_col]
+            # Find label columns by '&' prefix (freqtrade style)
+            label_cols = [col for col in df.columns if col.startswith("&")]
+            if not label_cols:
+                raise ValueError("No label column found (columns with '&' prefix)")
+
+            # Use first label column (typically &s-extrema)
+            label_col = label_cols[0]
+
+            # Feature columns: all columns after datetime/vt_symbol, excluding labels
+            feature_cols = [col for col in df.columns[2:] if not col.startswith("&")]
             data = df.select(feature_cols).to_numpy()
             label = df[label_col].to_numpy()
 
@@ -550,6 +557,7 @@ class XGBoostExtremaModel(AlphaModel):
                 X_train = data
                 y_train = label
                 self._feature_names = feature_cols
+                self._label_col = label_col
             else:
                 X_valid = data
                 y_valid = label
