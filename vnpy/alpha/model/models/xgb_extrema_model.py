@@ -107,7 +107,8 @@ class XGBoostExtremaModel(AlphaModel):
         self.model: xgb.Booster | None = None
         self._feature_names: list[str] | None = None
 
-        # State tracking for progressive thresholds
+        # State tracking for progressive thresholds (freqtrade compatible)
+        self._exchange_candles: int | None = None  # Initial candle count at model start
         self._predictions_history: np.ndarray | None = None
         self._prediction_count: int = 0
         self._historic_predictions: dict[str, pl.DataFrame] = {}
@@ -368,11 +369,32 @@ class XGBoostExtremaModel(AlphaModel):
 
         predictions = self.model.predict(xgb.DMatrix(data))
 
+        # Record initial exchange candles count (freqtrade compatible)
+        if self._exchange_candles is None:
+            self._exchange_candles = self._prediction_count
+            logger = logging.getLogger(__name__)
+            logger.info(f"Initial exchange candles recorded: {self._exchange_candles}")
+
         self._prediction_count += len(predictions)
 
         di_values = self._compute_di_values(predictions)
 
-        warmup_progress = min(1.0, max(0.0, self._prediction_count / self.num_candles))
+        # Calculate new predictions since model start (freqtrade warmup logic)
+        new_predictions = self._prediction_count - self._exchange_candles
+        warmup_progress = min(1.0, max(0.0, new_predictions / self.num_candles))
+
+        # Log warmup progress (freqtrade style)
+        if warmup_progress < 1.0:
+            progress_pct = int(warmup_progress * 100)
+            candles_needed = self.num_candles - new_predictions
+            logger = logging.getLogger(__name__)
+            logger.info(
+                f"Threshold warmup progress: {progress_pct}% "
+                f"({new_predictions}/{self.num_candles} new candles, need {candles_needed} more)"
+            )
+        else:
+            logger = logging.getLogger(__name__)
+            logger.info(f"Threshold warmup complete, total {new_predictions} new candles")
 
         maxima_threshold, minima_threshold = self._compute_progressive_thresholds(
             predictions, warmup_progress

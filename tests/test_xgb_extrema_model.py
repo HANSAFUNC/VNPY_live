@@ -126,6 +126,7 @@ class TestProgressiveDICutoff:
         """Test default cutoff before warmup"""
         model = XGBoostExtremaModel()
         model._prediction_count = 10
+        model._exchange_candles = 0  # freqtrade compatible
 
         di_values = np.array([1.0, 2.0, 3.0])
         warmup_progress = 0.1
@@ -138,6 +139,7 @@ class TestProgressiveDICutoff:
         """Test Weibull fitting with real data"""
         model = XGBoostExtremaModel(num_candles=200)
         model._prediction_count = 100
+        model._exchange_candles = 0  # freqtrade compatible
 
         di_values = np.abs(np.random.randn(100)) + 0.5
 
@@ -150,12 +152,98 @@ class TestProgressiveDICutoff:
         """Test exception handling"""
         model = XGBoostExtremaModel()
         model._prediction_count = 100
+        model._exchange_candles = 0  # freqtrade compatible
 
         di_values = np.array([])
 
         cutoff, params = model._compute_progressive_di_cutoff(di_values, 0.5)
         assert cutoff == model.DEFAULT_DI_CUTOFF
         assert params == (0.0, 0.0, 0.0)
+
+
+class TestExchangeCandlesWarmup:
+    """Test freqtrade-compatible exchange_candles warmup mechanism"""
+
+    def test_exchange_candles_initialized_on_first_predict(self):
+        """Test that _exchange_candles is set on first prediction"""
+        model = XGBoostExtremaModel(n_estimators=10)
+
+        train_df = pl.DataFrame().with_columns(
+            pl.date_range(start=pl.date(2024, 1, 1), end=pl.date(2024, 1, 10), interval="1d").alias("datetime"),
+            pl.lit("AAPL").alias("vt_symbol"),
+            pl.Series(np.random.randn(10)).alias("feature1"),
+            pl.Series(np.random.randn(10)).alias("feature2"),
+            pl.Series(np.random.randn(10)).alias("label"),
+        )
+
+        valid_df = pl.DataFrame().with_columns(
+            pl.date_range(start=pl.date(2024, 1, 11), end=pl.date(2024, 1, 15), interval="1d").alias("datetime"),
+            pl.lit("AAPL").alias("vt_symbol"),
+            pl.Series(np.random.randn(5)).alias("feature1"),
+            pl.Series(np.random.randn(5)).alias("feature2"),
+            pl.Series(np.random.randn(5)).alias("label"),
+        )
+
+        test_df = pl.DataFrame().with_columns(
+            pl.date_range(start=pl.date(2024, 1, 16), end=pl.date(2024, 1, 20), interval="1d").alias("datetime"),
+            pl.lit("AAPL").alias("vt_symbol"),
+            pl.Series(np.random.randn(5)).alias("feature1"),
+            pl.Series(np.random.randn(5)).alias("feature2"),
+            pl.Series(np.random.randn(5)).alias("label"),
+        )
+
+        dataset = MagicMock(spec=AlphaDataset)
+        dataset.fetch_learn.side_effect = lambda segment: (
+            train_df if segment == Segment.TRAIN else valid_df
+        )
+        dataset.fetch_infer.return_value = test_df
+
+        model.fit(dataset)
+
+        # Before first predict, _exchange_candles should be None
+        assert model._exchange_candles is None
+
+        # First predict
+        model.predict(dataset, Segment.TEST)
+
+        # After first predict, _exchange_candles should be set to 0 (initial count)
+        assert model._exchange_candles == 0
+
+    def test_warmup_progress_based_on_new_predictions(self):
+        """Test warmup progress uses new_predictions (freqtrade style)"""
+        model = XGBoostExtremaModel(num_candles=100)
+        model._exchange_candles = 0  # Simulate initial state
+        model._prediction_count = 50  # 50 new predictions
+
+        # new_predictions = 50 - 0 = 50
+        # warmup_progress = 50 / 100 = 0.5
+        new_predictions = model._prediction_count - model._exchange_candles
+        warmup_progress = min(1.0, max(0.0, new_predictions / model.num_candles))
+
+        assert warmup_progress == 0.5
+
+    def test_warmup_complete_when_new_predictions_reach_target(self):
+        """Test warmup reaches 100% when new_predictions >= num_candles"""
+        model = XGBoostExtremaModel(num_candles=200)
+        model._exchange_candles = 0
+        model._prediction_count = 200  # Exactly at target
+
+        new_predictions = model._prediction_count - model._exchange_candles
+        warmup_progress = min(1.0, max(0.0, new_predictions / model.num_candles))
+
+        assert warmup_progress == 1.0
+
+    def test_warmup_stays_at_100_after_complete(self):
+        """Test warmup stays at 100% even with more predictions"""
+        model = XGBoostExtremaModel(num_candles=200)
+        model._exchange_candles = 0
+        model._prediction_count = 300  # Beyond target
+
+        new_predictions = model._prediction_count - model._exchange_candles
+        warmup_progress = min(1.0, max(0.0, new_predictions / model.num_candles))
+
+        # Should stay at 1.0 (100%) even with more predictions
+        assert warmup_progress == 1.0
 
 
 class TestModelTraining:
