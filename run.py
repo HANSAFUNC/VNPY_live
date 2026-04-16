@@ -2,7 +2,7 @@ from vnpy.event import EventEngine
 from vnpy.trader.engine import MainEngine
 from vnpy.trader.ui import MainWindow, create_qapp
 # from vnpy_ctabacktester import CtaBacktesterApp
-# from vnpy_datamanager import DataManagerApp
+from vnpy_datamanager import DataManagerApp
 # from vnpy_datarecorder import DataRecorderApp
 # from vnpy_paperaccount import PaperAccountApp
 from vnpy_portfoliostrategy import PortfolioStrategyApp, StrategyEngine
@@ -34,6 +34,11 @@ SETTINGS["database.database"] = "vnpy"
 SETTINGS["database.user"] = "guojiantao"
 SETTINGS["database.password"] = "123456"
 
+# 配置数据服务
+SETTINGS["datafeed.name"] = "xt"
+SETTINGS["datafeed.username"] = "client"
+SETTINGS["datafeed.password"] = ""
+
 def main():
     """"""
     qapp = create_qapp()
@@ -48,13 +53,16 @@ def main():
     # main_engine.add_app(ChartWizardApp)
     portfolio_engine:StrategyEngine = main_engine.add_app(PortfolioStrategyApp)
 
-    # main_engine.add_app(DataManagerApp)
+    main_engine.add_app(DataManagerApp)
     # main_engine.add_app(DataRecorderApp)
     # main_engine.add_app(PaperAccountApp)
 
     # 创建策略实例参数
     strategy_name = "PortfolioTopkMomentumStrategy"
-    vt_symbols = "rb2410.SHFE,i2409.DCE"  # 合约品种格式：vt_symbol用逗号分隔
+
+    vt_symbols = "600988.SSE"  # 合约品种格式：vt_symbol用逗号分隔
+    gateway_name = "CTP"
+
     strategy_class_name = "PortfolioTopkMomentumStrategy"
 
     setting = {
@@ -62,7 +70,9 @@ def main():
         "boll_window": 20,
         "boll_dev": 2.0  # 注意：浮点数参数要设为浮点数默认值
     }
+
     portfolio_engine.init_engine()
+
     vt_symbols_list = [s.strip() for s in vt_symbols.split(",") if s.strip()]
     portfolio_engine.add_strategy(
         strategy_class_name,
@@ -70,6 +80,7 @@ def main():
         vt_symbols_list,
         setting
     )
+
 
     portfolio_engine.init_strategy(strategy_name)
     # init_strategy 在内部使用线程池异步执行，避免刚 init 就 start 导致启动失败
