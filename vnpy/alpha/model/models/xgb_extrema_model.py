@@ -28,6 +28,9 @@ class XGBoostExtremaModel(AlphaModel):
     extremum detection based on local statistics.
     """
 
+    # Class-level constant for prediction column name
+    PREDICTION_COL = PREDICTION_COL
+
     def __init__(
         self,
         learning_rate: float = 0.1,
@@ -41,6 +44,9 @@ class XGBoostExtremaModel(AlphaModel):
         minima_threshold: float = DEFAULT_MINIMA_THRESHOLD,
         di_cutoff: float = DEFAULT_DI_CUTOFF,
         min_candles: int = MIN_CANDLES_FOR_DYNAMIC,
+        # Dynamic threshold parameters
+        num_candles: int = 100,
+        label_period_candles: int = 10,
     ):
         """
         Initialize XGBoost Extrema Model.
@@ -67,6 +73,10 @@ class XGBoostExtremaModel(AlphaModel):
             Cutoff value for DI-based extremum detection
         min_candles : int
             Minimum candles required for dynamic threshold calculation
+        num_candles : int
+            Number of candles for dynamic threshold calculation
+        label_period_candles : int
+            Label period in candles for frequency calculation
         """
         self.params: dict = {
             "objective": "reg:squarederror",
@@ -84,6 +94,10 @@ class XGBoostExtremaModel(AlphaModel):
         self.minima_threshold: float = minima_threshold
         self.di_cutoff: float = di_cutoff
         self.min_candles: int = min_candles
+
+        # Dynamic threshold parameters
+        self.num_candles: int = num_candles
+        self.label_period_candles: int = label_period_candles
 
         # Model state
         self.model: xgb.Booster | None = None
@@ -136,6 +150,48 @@ class XGBoostExtremaModel(AlphaModel):
         # Compute DI values as z-scores
         di_values = (predictions - mean) / std
         return di_values
+
+    def _compute_dynamic_thresholds(
+        self,
+        pred_df_full: pl.DataFrame,
+    ) -> tuple[float, float]:
+        """
+        Compute dynamic thresholds from prediction data.
+
+        Uses sorted predictions to calculate thresholds based on the top and
+        bottom frequency-weighted predictions.
+
+        Parameters
+        ----------
+        pred_df_full : pl.DataFrame
+            DataFrame containing predictions in PREDICTION_COL column
+
+        Returns
+        -------
+        tuple[float, float]
+            Tuple of (maxima_threshold, minima_threshold)
+        """
+        if len(pred_df_full) == 0:
+            return DEFAULT_MAXIMA_THRESHOLD, DEFAULT_MINIMA_THRESHOLD
+
+        # Sort predictions by value
+        predictions = pred_df_full.sort(self.PREDICTION_COL, descending=True)
+
+        # Calculate frequency based on num_candles and label_period_candles
+        frequency = max(1, int(self.num_candles / (self.label_period_candles * 2)))
+        frequency = min(frequency, len(predictions))
+
+        # Calculate thresholds from top and bottom predictions
+        max_pred = predictions.head(frequency)[self.PREDICTION_COL].mean()
+        min_pred = predictions.tail(frequency)[self.PREDICTION_COL].mean()
+
+        # Handle NaN or None values
+        if max_pred is None or np.isnan(max_pred):
+            max_pred = DEFAULT_MAXIMA_THRESHOLD
+        if min_pred is None or np.isnan(min_pred):
+            min_pred = DEFAULT_MINIMA_THRESHOLD
+
+        return float(max_pred), float(min_pred)
 
     def fit(self, dataset: AlphaDataset) -> None:
         """
