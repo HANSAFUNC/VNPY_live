@@ -62,13 +62,12 @@ class QuickAdapterV5Dataset(AlphaDataset):
                 feat_df = feature_df.select(["datetime", "vt_symbol", col]).rename({col: "data"})
                 self.add_feature(col, result=feat_df)
 
-        # Set extrema label (freqtrade naming)
+        # Add extrema label column (&s-extrema is the training target)
         extrema_df = feature_df.select(["datetime", "vt_symbol", "&s-extrema"]).rename({"&s-extrema": "data"})
         self.add_feature("&s-extrema", result=extrema_df)
 
         # Store extrema columns for later use
         self._extrema_df = feature_df.select(["datetime", "vt_symbol", "minima", "maxima", "&s-extrema"])
-            self.set_label("ts_delay(close, -3) / ts_delay(close, -1) - 1")
 
     def _compute_features_pandas(self) -> pl.DataFrame:
         """Compute all features using pandas/talib (freqtrade style)"""
