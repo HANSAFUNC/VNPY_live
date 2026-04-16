@@ -1,0 +1,4 @@
+vnpy_postgresql
+vnpy_portfoliomanager
+vnpy_portfoliostrategy
+psycopg2-binary
