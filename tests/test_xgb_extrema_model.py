@@ -113,3 +113,42 @@ class TestProgressiveThresholds:
         maxima, minima = model._compute_progressive_thresholds(predictions, warmup_progress)
         # With num_candles=10, frequency=1, so maxima is the top value (10.0)
         assert abs(maxima - 10.0) < 2.0
+
+
+class TestProgressiveDICutoff:
+    """Test progressive DI cutoff with Weibull distribution"""
+
+    def test_di_cutoff_before_warmup(self):
+        """Test default cutoff before warmup"""
+        model = XGBoostExtremaModel()
+        model._prediction_count = 10
+
+        di_values = np.array([1.0, 2.0, 3.0])
+        warmup_progress = 0.1
+
+        cutoff, params = model._compute_progressive_di_cutoff(di_values, warmup_progress)
+        assert cutoff == model.DEFAULT_DI_CUTOFF
+        assert params == (0.0, 0.0, 0.0)
+
+    def test_di_cutoff_with_data(self):
+        """Test Weibull fitting with real data"""
+        model = XGBoostExtremaModel(num_candles=200)
+        model._prediction_count = 100
+
+        di_values = np.abs(np.random.randn(100)) + 0.5
+
+        cutoff, params = model._compute_progressive_di_cutoff(di_values, 0.5)
+        assert cutoff > 0
+        assert isinstance(params, tuple)
+        assert len(params) == 3
+
+    def test_di_cutoff_handles_exception(self):
+        """Test exception handling"""
+        model = XGBoostExtremaModel()
+        model._prediction_count = 100
+
+        di_values = np.array([])
+
+        cutoff, params = model._compute_progressive_di_cutoff(di_values, 0.5)
+        assert cutoff == model.DEFAULT_DI_CUTOFF
+        assert params == (0.0, 0.0, 0.0)

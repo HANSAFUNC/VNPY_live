@@ -32,6 +32,7 @@ class XGBoostExtremaModel(AlphaModel):
     PREDICTION_COL = PREDICTION_COL
     DEFAULT_MAXIMA_THRESHOLD = DEFAULT_MAXIMA_THRESHOLD
     DEFAULT_MINIMA_THRESHOLD = DEFAULT_MINIMA_THRESHOLD
+    DEFAULT_DI_CUTOFF = DEFAULT_DI_CUTOFF
     MIN_CANDLES_FOR_DYNAMIC = MIN_CANDLES_FOR_DYNAMIC
 
     def __init__(
@@ -252,6 +253,60 @@ class XGBoostExtremaModel(AlphaModel):
         )
 
         return maxima_threshold, minima_threshold
+
+    def _compute_progressive_di_cutoff(
+        self,
+        di_values: np.ndarray,
+        warmup_progress: float,
+    ) -> tuple[float, tuple[float, float, float]]:
+        """
+        Compute progressive DI cutoff using Weibull distribution.
+
+        During warmup period, blends default DI cutoff with dynamic cutoff
+        computed from Weibull distribution fitting of DI values.
+
+        Parameters
+        ----------
+        di_values : np.ndarray
+            DI values for Weibull fitting
+        warmup_progress : float
+            Progress through warmup period (0.0 to 1.0)
+
+        Returns
+        -------
+        tuple[float, tuple[float, float, float]]
+            Tuple of (cutoff, (shape, loc, scale)) where:
+            - cutoff: The computed DI cutoff value
+            - shape, loc, scale: Weibull distribution parameters
+        """
+        if self._prediction_count < self.MIN_CANDLES_FOR_DYNAMIC:
+            return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
+
+        if len(di_values) < 10:
+            return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
+
+        try:
+            # Fit Weibull distribution to DI values
+            f = scipy.stats.weibull_min.fit(di_values)
+            dynamic_cutoff = scipy.stats.weibull_min.ppf(0.999, *f)
+
+            # Blend default and dynamic cutoff based on warmup progress
+            cutoff = (
+                self.DEFAULT_DI_CUTOFF * (1 - warmup_progress)
+                + dynamic_cutoff * warmup_progress
+            )
+
+            # Blend Weibull parameters progressively
+            params = tuple(
+                0.0 * (1 - warmup_progress) + f[i] * warmup_progress
+                for i in range(3)
+            )
+
+            return cutoff, params
+        except Exception as e:
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to compute DI cutoff: {e}")
+            return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
 
     def fit(self, dataset: AlphaDataset) -> None:
         """
