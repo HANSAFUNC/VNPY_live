@@ -430,37 +430,6 @@ class XGBoostExtremaModel(AlphaModel):
         """
         return self._last_result_df
 
-    def _update_progressive_thresholds(self, di_values: np.ndarray) -> None:
-        """
-        Update dynamic thresholds based on recent DI values distribution.
-
-        Uses progressive warmup mechanism to adapt thresholds based on
-        local statistical properties of predictions.
-
-        Parameters
-        ----------
-        di_values : np.ndarray
-            Recent DI values for threshold adaptation
-        """
-        if len(di_values) < self.min_candles:
-            return
-
-        # Update dynamic thresholds based on recent distribution
-        positive_extremes = di_values[di_values > 0]
-        negative_extremes = di_values[di_values < 0]
-
-        if len(positive_extremes) > 0:
-            self._dynamic_thresholds["maxima"] = max(
-                self.maxima_threshold,
-                np.percentile(positive_extremes, 90) if len(positive_extremes) > 10 else self.maxima_threshold
-            )
-
-        if len(negative_extremes) > 0:
-            self._dynamic_thresholds["minima"] = max(
-                abs(self.minima_threshold),
-                abs(np.percentile(negative_extremes, 10)) if len(negative_extremes) > 10 else abs(self.minima_threshold)
-            )
-
     def _prepare_data(self, dataset: AlphaDataset) -> tuple:
         """
         Prepare data for training and validation.
