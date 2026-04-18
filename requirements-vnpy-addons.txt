@@ -2,3 +2,9 @@ vnpy_postgresql
 vnpy_portfoliomanager
 vnpy_portfoliostrategy
 psycopg2-binary
+pandas_ta
+technical
+polars
+scipy
+scikit-learn
+xtquant

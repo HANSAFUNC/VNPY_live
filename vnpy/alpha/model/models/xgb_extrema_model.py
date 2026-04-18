@@ -1,4 +1,4 @@
-"""XGBoost extrema selector model with progressive threshold warmup."""
+"""XGBoost 极值选股模型 - 使用渐进式阈值预热机制。"""
 
 import logging
 from typing import cast
@@ -12,7 +12,7 @@ from vnpy.alpha.dataset import AlphaDataset, Segment
 from vnpy.alpha.model import AlphaModel
 
 
-# Constants for extrema detection
+# 极值检测常量
 MIN_CANDLES_FOR_DYNAMIC = 50
 DEFAULT_MAXIMA_THRESHOLD = 2.0
 DEFAULT_MINIMA_THRESHOLD = -2.0
@@ -21,14 +21,13 @@ PREDICTION_COL = "&s-extrema"
 
 
 class XGBoostExtremaModel(AlphaModel):
-    """
-    XGBoost model for predicting stock price extrema (maxima/minima).
+    """用于预测股票价格极值（最高点/最低点）的 XGBoost 模型。
 
-    Uses progressive threshold warmup mechanism from freqtrade for adaptive
-    extremum detection based on local statistics.
+    使用来自 freqtrade 的渐进式阈值预热机制，用于自适应
+    极值检测。
     """
 
-    # Class-level constants for prediction column name and thresholds
+    # 类级别常量：预测列名和阈值
     PREDICTION_COL = PREDICTION_COL
     DEFAULT_MAXIMA_THRESHOLD = DEFAULT_MAXIMA_THRESHOLD
     DEFAULT_MINIMA_THRESHOLD = DEFAULT_MINIMA_THRESHOLD
@@ -43,44 +42,43 @@ class XGBoostExtremaModel(AlphaModel):
         early_stopping_rounds: int = 50,
         eval_metric: str = "rmse",
         seed: int | None = None,
-        # Progressive threshold parameters
+        # 渐进式阈值参数
         maxima_threshold: float = DEFAULT_MAXIMA_THRESHOLD,
         minima_threshold: float = DEFAULT_MINIMA_THRESHOLD,
         di_cutoff: float = DEFAULT_DI_CUTOFF,
         min_candles: int = MIN_CANDLES_FOR_DYNAMIC,
-        # Dynamic threshold parameters
+        # 动态阈值参数
         num_candles: int = 100,
         label_period_candles: int = 10,
     ):
-        """
-        Initialize XGBoost Extrema Model.
+        """初始化 XGBoost 极值模型。
 
-        Parameters
+        参数
         ----------
         learning_rate : float
-            Learning rate for XGBoost
+            XGBoost 学习率
         max_depth : int
-            Maximum depth of trees
+            树的最大深度
         n_estimators : int
-            Number of boosting rounds
+             boosting 轮数
         early_stopping_rounds : int
-            Rounds for early stopping
+            提前停止轮数
         eval_metric : str
-            Evaluation metric
+            评估指标
         seed : int | None
-            Random seed
+            随机种子
         maxima_threshold : float
-            Threshold for detecting maxima (positive DI values)
+            检测极大值的阈值（正 DI 值）
         minima_threshold : float
-            Threshold for detecting minima (negative DI values)
+            检测极小值的阈值（负 DI 值）
         di_cutoff : float
-            Cutoff value for DI-based extremum detection
+            DI 基极值检测的截止值
         min_candles : int
-            Minimum candles required for dynamic threshold calculation
+            动态阈值计算所需的最小 K 线数
         num_candles : int
-            Number of candles for dynamic threshold calculation
+            动态阈值计算的 K 线数量
         label_period_candles : int
-            Label period in candles for frequency calculation
+            标签周期的 K 线数（用于频率计算）
         """
         self.params: dict = {
             "objective": "reg:squarederror",
@@ -93,22 +91,22 @@ class XGBoostExtremaModel(AlphaModel):
         self.early_stopping_rounds: int = early_stopping_rounds
         self.eval_metric: str = eval_metric
 
-        # Progressive threshold parameters
+        # 渐进式阈值参数
         self.maxima_threshold: float = maxima_threshold
         self.minima_threshold: float = minima_threshold
         self.di_cutoff: float = di_cutoff
         self.min_candles: int = min_candles
 
-        # Dynamic threshold parameters
+        # 动态阈值参数
         self.num_candles: int = num_candles
         self.label_period_candles: int = label_period_candles
 
-        # Model state
+        # 模型状态
         self.model: XGBRegressor | None = None
         self._feature_names: list[str] | None = None
 
-        # State tracking for progressive thresholds (freqtrade compatible)
-        self._exchange_candles: int | None = None  # Initial candle count at model start
+        # 渐进式阈值的状态跟踪（freqtrade 兼容）
+        self._exchange_candles: int | None = None  # 模型启动时的初始 K 线计数
         self._predictions_history: np.ndarray | None = None
         self._prediction_count: int = 0
         self._historic_predictions: dict[str, pl.DataFrame] = {}
@@ -119,43 +117,41 @@ class XGBoostExtremaModel(AlphaModel):
         self._last_result_df: pl.DataFrame | None = None
 
     def _compute_di_values(self, predictions: np.ndarray) -> np.ndarray:
-        """
-        Compute DI (Divergence Indicator) values from predictions.
+        """从预测值计算 DI（偏离指标）值。
 
-        DI values are calculated as z-scores of predictions:
+        DI 值计算为预测值的 z-score：
         DI = (prediction - mean) / std
 
-        This normalization helps identify statistical extremes in the
-        prediction distribution.
+        这种标准化有助于识别预测分布中的统计极值。
 
-        Parameters
+        参数
         ----------
         predictions : np.ndarray
-            Raw predictions from the model
+            模型的原始预测值
 
-        Returns
+        返回
         -------
         np.ndarray
-            DI values (z-scores), same shape as input
+            DI 值（z-score），与输入形状相同
 
-        Notes
+        注意
         -----
-        - Returns zeros for empty arrays
-        - Returns zeros when standard deviation is zero
+        - 空数组返回零
+        - 当标准差为零时返回零
         """
-        # Handle empty array
+        # 处理空数组
         if len(predictions) == 0:
             return predictions.copy()
 
-        # Compute statistics
+        # 计算统计量
         mean = predictions.mean()
         std = predictions.std()
 
-        # Handle zero std case
+        # 处理零标准差情况
         if std == 0:
             return np.zeros_like(predictions)
 
-        # Compute DI values as z-scores
+        # 计算 DI 值为 z-score
         di_values = (predictions - mean) / std
         return di_values
 
@@ -163,37 +159,35 @@ class XGBoostExtremaModel(AlphaModel):
         self,
         pred_df_full: pl.DataFrame,
     ) -> tuple[float, float]:
-        """
-        Compute dynamic thresholds from prediction data.
+        """从预测数据计算动态阈值。
 
-        Uses sorted predictions to calculate thresholds based on the top and
-        bottom frequency-weighted predictions.
+        使用排序后的预测值，根据顶部和底部频率加权预测计算阈值。
 
-        Parameters
+        参数
         ----------
         pred_df_full : pl.DataFrame
-            DataFrame containing predictions in PREDICTION_COL column
+            包含 PREDICTION_COL 列的预测 DataFrame
 
-        Returns
+        返回
         -------
         tuple[float, float]
-            Tuple of (maxima_threshold, minima_threshold)
+            (maxima_threshold, minima_threshold) 元组
         """
         if len(pred_df_full) == 0:
             return DEFAULT_MAXIMA_THRESHOLD, DEFAULT_MINIMA_THRESHOLD
 
-        # Sort predictions by value
+        # 按值降序排序预测
         predictions = pred_df_full.sort(self.PREDICTION_COL, descending=True)
 
-        # Calculate frequency based on num_candles and label_period_candles
+        # 基于 num_candles 和 label_period_candles 计算频率
         frequency = max(1, int(self.num_candles / (self.label_period_candles * 2)))
         frequency = min(frequency, len(predictions))
 
-        # Calculate thresholds from top and bottom predictions
+        # 从顶部和底部预测计算阈值
         max_pred = predictions.head(frequency)[self.PREDICTION_COL].mean()
         min_pred = predictions.tail(frequency)[self.PREDICTION_COL].mean()
 
-        # Handle NaN or None values
+        # 处理 NaN 或 None 值
         if max_pred is None or np.isnan(max_pred):
             max_pred = DEFAULT_MAXIMA_THRESHOLD
         if min_pred is None or np.isnan(min_pred):
@@ -202,21 +196,20 @@ class XGBoostExtremaModel(AlphaModel):
         return float(max_pred), float(min_pred)
 
     def _get_historic_predictions_df(self, symbol: str | None = None) -> pl.DataFrame:
-        """
-        Merge all historic predictions across symbols with window limit.
+        """使用窗口限制合并所有符号的历史预测。
 
-        Uses tail(num_candles) to limit to recent predictions (freqtrade compatible).
+        使用 tail(num_candles) 限制为最近的预测（freqtrade 兼容）。
 
-        Parameters
+        参数
         ----------
         symbol : str | None
-            Optional symbol to filter. If None, merges all symbols.
+            可选的符号过滤器。如果为 None，则合并所有符号。
 
-        Returns
+        返回
         -------
         pl.DataFrame
-            DataFrame containing historic predictions limited to num_candles,
-            in PREDICTION_COL column
+            包含历史预测的 DataFrame，限制为 num_candles，
+            在 PREDICTION_COL 列中
         """
         if not self._historic_predictions:
             return pl.DataFrame().with_columns(
@@ -232,7 +225,7 @@ class XGBoostExtremaModel(AlphaModel):
         else:
             pred_df = pl.concat(list(self._historic_predictions.values()))
 
-        # Apply tail(num_candles) window limit (freqtrade compatible)
+        # 应用 tail(num_candles) 窗口限制（freqtrade 兼容）
         if len(pred_df) > self.num_candles:
             pred_df = pred_df.tail(self.num_candles)
 
@@ -243,23 +236,21 @@ class XGBoostExtremaModel(AlphaModel):
         pred_df_full: pl.DataFrame,
         warmup_progress: float,
     ) -> tuple[float, float]:
-        """
-        Compute progressive thresholds with warmup.
+        """使用预热计算渐进式阈值。
 
-        During warmup period, blends default thresholds with dynamic thresholds
-        based on progress through the warmup period.
+        在预热期间，基于预热进度将默认阈值与动态阈值混合。
 
-        Parameters
+        参数
         ----------
         pred_df_full : pl.DataFrame
-            DataFrame containing historical predictions
+            包含历史预测的 DataFrame
         warmup_progress : float
-            Progress through warmup period (0.0 to 1.0)
+            预热进度（0.0 到 1.0）
 
-        Returns
+        返回
         -------
         tuple[float, float]
-            Tuple of (maxima_threshold, minima_threshold)
+            (maxima_threshold, minima_threshold) 元组
         """
         if self._prediction_count < self.MIN_CANDLES_FOR_DYNAMIC:
             return self.DEFAULT_MAXIMA_THRESHOLD, self.DEFAULT_MINIMA_THRESHOLD
@@ -282,51 +273,50 @@ class XGBoostExtremaModel(AlphaModel):
         pred_df_full: pl.DataFrame,
         warmup_progress: float,
     ) -> tuple[float, tuple[float, float, float]]:
-        """
-        Compute progressive DI cutoff using Weibull distribution.
+        """使用 Weibull 分布计算渐进式 DI 截止值。
 
-        During warmup period, blends default DI cutoff with dynamic cutoff
-        computed from Weibull distribution fitting of historical DI values.
+        在预热期间，基于历史 DI 值的 Weibull 分布拟合，
+        将默认 DI 截止值与动态截止值混合。
 
-        Parameters
+        参数
         ----------
         pred_df_full : pl.DataFrame
-            DataFrame containing historical DI_values column
+            包含历史 DI_values 列的 DataFrame
         warmup_progress : float
-            Progress through warmup period (0.0 to 1.0)
+            预热进度（0.0 到 1.0）
 
-        Returns
+        返回
         -------
         tuple[float, tuple[float, float, float]]
-            Tuple of (cutoff, (shape, loc, scale)) where:
-            - cutoff: The computed DI cutoff value
-            - shape, loc, scale: Weibull distribution parameters
+            (cutoff, (shape, loc, scale)) 元组：
+            - cutoff：计算得到的 DI 截止值
+            - shape, loc, scale：Weibull 分布参数
         """
         if self._prediction_count < self.MIN_CANDLES_FOR_DYNAMIC:
             return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
 
-        # Extract DI values from historical predictions (freqtrade compatible)
+        # 从历史预测中提取 DI 值（freqtrade 风格）
         if "DI_values" not in pred_df_full.columns or len(pred_df_full) < 10:
             return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
 
         di_values = pred_df_full["DI_values"].to_numpy()
-        di_values = di_values[~np.isnan(di_values)]  # Drop NaN values
+        di_values = di_values[~np.isnan(di_values)]  # 丢弃 NaN 值
 
         if len(di_values) < 10:
             return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
 
         try:
-            # Fit Weibull distribution to historical DI values
+            # 拟合 Weibull 分布到历史 DI 值
             f = scipy.stats.weibull_min.fit(di_values)
             dynamic_cutoff = scipy.stats.weibull_min.ppf(0.999, *f)
 
-            # Blend default and dynamic cutoff based on warmup progress
+            # 基于预热进度混合默认和动态截止值
             cutoff = (
                 self.DEFAULT_DI_CUTOFF * (1 - warmup_progress)
                 + dynamic_cutoff * warmup_progress
             )
 
-            # Blend Weibull parameters progressively
+            # 渐进式混合 Weibull 参数
             params = tuple(
                 0.0 * (1 - warmup_progress) + f[i] * warmup_progress
                 for i in range(3)
@@ -335,7 +325,7 @@ class XGBoostExtremaModel(AlphaModel):
             return cutoff, params
         except Exception as e:
             logger = logging.getLogger(__name__)
-            logger.warning(f"Failed to compute DI cutoff: {e}")
+            logger.warning(f"计算 DI 截止值失败：{e}")
             return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
 
     def fit(self, dataset: AlphaDataset) -> None:
@@ -347,7 +337,7 @@ class XGBoostExtremaModel(AlphaModel):
         dataset : AlphaDataset
             The dataset containing features and labels
 
-        Returns
+        返回
         -------
         None
         """
@@ -371,52 +361,53 @@ class XGBoostExtremaModel(AlphaModel):
         )
 
         logger = logging.getLogger(__name__)
-        logger.info(f"Model trained with {self.model.best_iteration + 1} rounds")
+        logger.info(f"模型训练完成，最佳迭代轮数：{self.model.best_iteration + 1}")
 
     def predict(self, dataset: AlphaDataset, segment: Segment) -> np.ndarray:
-        """
-        Make predictions using the trained model with threshold calculation.
+        """使用训练好的模型进行预测，包含阈值计算。
 
-        Parameters
+        参数
         ----------
         dataset : AlphaDataset
-            The dataset containing features
+            包含特征的数据集
         segment : Segment
-            The segment to make predictions on
+            要预测的数据段
 
-        Returns
+        返回
         -------
         np.ndarray
-            Prediction results
+            预测结果
 
         Raises
         ------
         ValueError
-            If the model has not been fitted yet
+            如果模型尚未拟合
         """
         if self.model is None:
-            raise ValueError("Model not fitted. Call fit() first.")
+            raise ValueError("模型尚未拟合。请先调用 fit()。")
 
         df = dataset.fetch_infer(segment)
         df = df.sort(["datetime", "vt_symbol"])
 
-        feature_cols = df.columns[2:-1] if "label" in df.columns else df.columns[2:]
+        # 使用与_prepare_data 相同的逻辑：排除标签列（& 前缀）
+        # 以及 minima/maxima 列
+        feature_cols = [col for col in df.columns[2:] if not col.startswith("&") and col not in ("minima", "maxima")]
         data = df.select(feature_cols).to_numpy()
 
         predictions = self.model.predict(data)
 
-        # Record initial exchange candles count (freqtrade compatible)
+        # 记录初始交易所 K 线计数（freqtrade 兼容）
         if self._exchange_candles is None:
             self._exchange_candles = self._prediction_count
             logger = logging.getLogger(__name__)
-            logger.info(f"Initial exchange candles recorded: {self._exchange_candles}")
+            logger.info(f"已记录初始交易所 K 线数：{self._exchange_candles}")
 
         self._prediction_count += len(predictions)
 
-        # Compute DI values for current batch
+        # 计算当前批次的 DI 值
         di_values = self._compute_di_values(predictions)
 
-        # Build initial result_df with predictions and DI values
+        # 构建包含预测值和 DI 值的初始 result_df
         result_df = pl.DataFrame().with_columns(
             df["vt_symbol"].alias("vt_symbol"),
             df["datetime"].alias("datetime"),
@@ -424,7 +415,7 @@ class XGBoostExtremaModel(AlphaModel):
             pl.Series(di_values).alias("DI_values"),
         )
 
-        # Store predictions by symbol for historic tracking BEFORE computing thresholds
+        # 在计算阈值之前，按符号存储预测值用于历史跟踪
         symbols = df["vt_symbol"].to_numpy()
         unique_symbols = np.unique(symbols)
 
@@ -437,27 +428,27 @@ class XGBoostExtremaModel(AlphaModel):
                     [self._historic_predictions[symbol], symbol_df]
                 )
 
-        # Get historic predictions with window limit (freqtrade compatible)
+        # 获取带有窗口限制的历史预测（freqtrade 兼容）
         pred_df_full = self._get_historic_predictions_df()
 
-        # Calculate warmup progress (freqtrade style)
+        # 计算预热进度（freqtrade 风格）
         new_predictions = self._prediction_count - self._exchange_candles
         warmup_progress = min(1.0, max(0.0, new_predictions / self.num_candles))
 
-        # Log warmup progress
+        # 记录预热进度
         if warmup_progress < 1.0:
             progress_pct = int(warmup_progress * 100)
             candles_needed = self.num_candles - new_predictions
             logger = logging.getLogger(__name__)
             logger.info(
-                f"Threshold warmup progress: {progress_pct}% "
-                f"({new_predictions}/{self.num_candles} new candles, need {candles_needed} more)"
+                f"阈值预热进度：{progress_pct}% "
+                f"({new_predictions}/{self.num_candles} 根新 K 线，还需要 {candles_needed} 根)"
             )
         else:
             logger = logging.getLogger(__name__)
-            logger.info(f"Threshold warmup complete, total {new_predictions} new candles")
+            logger.info(f"阈值预热完成，共 {new_predictions} 根新 K 线")
 
-        # Compute thresholds using stored historic predictions (freqtrade compatible)
+        # 使用存储的历史预测计算阈值（freqtrade 兼容）
         maxima_threshold, minima_threshold = self._compute_progressive_thresholds(
             pred_df_full, warmup_progress
         )
@@ -465,7 +456,7 @@ class XGBoostExtremaModel(AlphaModel):
             pred_df_full, warmup_progress
         )
 
-        # Compute DI stats for storage (freqtrade compatible)
+        # 计算 DI 统计值用于存储（freqtrade 兼容）
         di_mean = pred_df_full["DI_values"].mean() if len(pred_df_full) > 0 else 0.0
         di_std = pred_df_full["DI_values"].std() if len(pred_df_full) > 0 else 0.0
         if di_std is None or np.isnan(di_std):
@@ -473,7 +464,7 @@ class XGBoostExtremaModel(AlphaModel):
         if di_mean is None or np.isnan(di_mean):
             di_mean = 0.0
 
-        # Add threshold columns to result_df
+        # 添加阈值列到 result_df
         result_df = result_df.with_columns(
             pl.Series([maxima_threshold] * len(predictions)).alias("&s-maxima_sort_threshold"),
             pl.Series([minima_threshold] * len(predictions)).alias("&s-minima_sort_threshold"),
@@ -483,7 +474,7 @@ class XGBoostExtremaModel(AlphaModel):
             pl.Series([di_params[2]] * len(predictions)).alias("DI_value_param3"),
             pl.Series([di_mean] * len(predictions)).alias("DI_value_mean"),
             pl.Series([di_std] * len(predictions)).alias("DI_value_std"),
-            # Labels stats initialized to 0 (freqtrade compatible)
+            # 标签统计初始化为 0（freqtrade 兼容）
             pl.Series([0.0] * len(predictions)).alias("labels_mean"),
             pl.Series([0.0] * len(predictions)).alias("labels_std"),
         )
@@ -492,44 +483,42 @@ class XGBoostExtremaModel(AlphaModel):
 
         logger = logging.getLogger(__name__)
         logger.info(
-            f"Predicted {len(predictions)} samples, warmup: {int(warmup_progress * 100)}%, "
-            f"thresholds: ({maxima_threshold:.2f}, {minima_threshold:.2f})"
+            f"预测 {len(predictions)} 个样本，预热：{int(warmup_progress * 100)}%, "
+            f"阈值：({maxima_threshold:.2f}, {minima_threshold:.2f})"
         )
 
         return predictions
 
     def get_result_df(self) -> pl.DataFrame | None:
-        """
-        Get full prediction result DataFrame.
+        """获取完整的预测结果 DataFrame。
 
-        Returns
+        返回
         -------
         pl.DataFrame | None
-            DataFrame containing all prediction results with thresholds,
-            or None if predict() has not been called yet
+            包含所有预测结果和阈值的 DataFrame，
+            如果尚未调用 predict() 则返回 None
         """
         return self._last_result_df
 
     def _prepare_data(self, dataset: AlphaDataset) -> tuple:
-        """
-        Prepare data for training and validation (freqtrade style).
+        """准备训练和验证数据（freqtrade 风格）。
 
-        Automatically identifies label columns by '&' prefix (freqtrade convention).
+        自动通过 '&' 前缀识别标签列（freqtrade 约定）。
 
-        Parameters
+        参数
         ----------
         dataset : AlphaDataset
-            The dataset containing features and labels
+            包含特征和标签的数据集
 
-        Returns
+        返回
         -------
         tuple
-            Tuple of (X_train, y_train, X_valid, y_valid) as numpy arrays
+            (X_train, y_train, X_valid, y_valid) 元组，作为 numpy 数组
 
         Raises
         ------
         ValueError
-            If no label column found or data preparation fails
+            如果未找到标签列或数据准备失败
         """
         X_train: np.ndarray
         y_train: np.ndarray
@@ -540,18 +529,24 @@ class XGBoostExtremaModel(AlphaModel):
             df = dataset.fetch_learn(segment)
             df = df.sort(["datetime", "vt_symbol"])
 
-            # Find label columns by '&' prefix (freqtrade style)
+            # 通过 '&' 前缀查找标签列（freqtrade 风格）
             label_cols = [col for col in df.columns if col.startswith("&")]
             if not label_cols:
-                raise ValueError("No label column found (columns with '&' prefix)")
+                raise ValueError("未找到标签列（缺少 '&' 前缀的列）")
 
-            # Use first label column (typically &s-extrema)
+            # 使用第一个标签列（通常是 &s-extrema）
             label_col = label_cols[0]
 
-            # Feature columns: all columns after datetime/vt_symbol, excluding labels
+            # 特征列：datetime/vt_symbol 之后的所有列，排除标签
             feature_cols = [col for col in df.columns[2:] if not col.startswith("&")]
             data = df.select(feature_cols).to_numpy()
             label = df[label_col].to_numpy()
+
+            # 清理标签中的 NaN 和 inf 值
+            label = np.nan_to_num(label, nan=0.0, posinf=1e10, neginf=-1e10)
+
+            # 清理特征中的 NaN 和 inf 值
+            data = np.nan_to_num(data, nan=0.0, posinf=1e10, neginf=-1e10)
 
             if segment == Segment.TRAIN:
                 X_train = data
@@ -565,19 +560,44 @@ class XGBoostExtremaModel(AlphaModel):
         return X_train, y_train, X_valid, y_valid
 
     def detail(self) -> None:
-        """
-        Display model details with feature importance.
+        """显示模型详细信息，包含特征重要性。
 
-        Returns
+        返回
         -------
         None
         """
         if self.model is None:
-            logging.info("Model not fitted yet")
+            logging.info("模型尚未拟合")
             return
 
-        # Get feature importance
+        # 获取特征重要性
         importance = self.model.get_booster().get_score(importance_type="gain")
-        logging.info("Feature importance (gain):")
+        logging.info("特征重要性（gain）：")
         for feat, score in sorted(importance.items(), key=lambda x: x[1], reverse=True)[:20]:
             logging.info(f"  {feat}: {score:.4f}")
+
+    def get_thresholds(self, dataset: AlphaDataset) -> tuple[float, float]:
+        """从训练数据计算极大值和极小值阈值。
+
+        参数
+        ----------
+        dataset : AlphaDataset
+            包含带有标签列的训练数据的数据集
+
+        返回
+        -------
+        tuple[float, float]
+            (maxima_threshold, minima_threshold) 元组
+            - maxima_threshold: &s-extrema 的 90% 分位数（卖出信号阈值）
+            - minima_threshold: &s-extrema 的 10% 分位数（买入信号阈值）
+        """
+        train_df = dataset.fetch_learn(Segment.TRAIN)
+        label_cols = [col for col in train_df.columns if col.startswith("&")]
+        if not label_cols:
+            raise ValueError("未找到标签列（缺少 '&' 前缀的列）")
+
+        label_col = label_cols[0]
+        maxima_threshold = train_df[label_col].quantile(0.9).item()
+        minima_threshold = train_df[label_col].quantile(0.1).item()
+
+        return maxima_threshold, minima_threshold

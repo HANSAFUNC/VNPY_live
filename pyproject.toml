@@ -48,6 +48,7 @@ alpha = [
     "lightgbm>=4.6.0",
     "torch>=2.6.0",
     "pyarrow>=19.0.1",
+    "xgboost"
 ]
 dev = [
     "pandas-stubs>=2.2.3.250308",

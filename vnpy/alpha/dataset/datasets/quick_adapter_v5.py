@@ -22,6 +22,7 @@ class QuickAdapterV5Dataset(AlphaDataset):
         test_period: tuple[str, str],
         periods: list[int] = [10, 20, 30, 40, 50],
         label_period_candles: int = 10,
+        include_shifted_candles: list[int] = None,
     ) -> None:
         """Constructor
 
@@ -39,6 +40,8 @@ class QuickAdapterV5Dataset(AlphaDataset):
             Periods for expand_all features
         label_period_candles : int
             Period for extrema detection (freqtrade compatible)
+        include_shifted_candles : list[int], optional
+            List of lag periods for shifted features (e.g., [1, 2, 3] for lag1, lag2, lag3)
         """
         super().__init__(
             df=df,
@@ -49,12 +52,11 @@ class QuickAdapterV5Dataset(AlphaDataset):
 
         self.periods = periods
         self.label_period_candles = label_period_candles
+        self.include_shifted_candles = include_shifted_candles or []
 
         # Compute features using pandas (freqtrade style)
+        # This includes extrema targets via _set_freqai_targets
         feature_df = self._compute_features_pandas()
-
-        # Compute extrema targets (freqtrade style)
-        feature_df = self._set_freqai_targets(feature_df)
 
         # Add each feature as result DataFrame
         for col in feature_df.columns:
@@ -80,8 +82,15 @@ class QuickAdapterV5Dataset(AlphaDataset):
         for symbol in pdf["vt_symbol"].unique():
             symbol_pdf = pdf[pdf["vt_symbol"] == symbol].copy()
             symbol_pdf = self._feature_engineering_expand_all(symbol_pdf)
+
+            # Generate shifted/lagged features for expand_all features only
+            if self.include_shifted_candles:
+                symbol_pdf = self._add_shifted_features(symbol_pdf)
+
             symbol_pdf = self._feature_engineering_expand_basic(symbol_pdf)
             symbol_pdf = self._feature_engineering_standard(symbol_pdf)
+            symbol_pdf = self._set_freqai_targets(symbol_pdf)
+
             results.append(symbol_pdf)
 
         # Concat and convert back to polars
@@ -90,8 +99,32 @@ class QuickAdapterV5Dataset(AlphaDataset):
 
         return full_pl
 
+    def _add_shifted_features(self, dataframe: pd.DataFrame) -> pd.DataFrame:
+        """Add shifted/lagged versions of features from _feature_engineering_expand_all
+
+        Parameters
+        ----------
+        dataframe : pd.DataFrame
+            Feature DataFrame
+
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with added lag features (e.g., %-rsi-10-lag1, %-rsi-10-lag2)
+        """
+        # Get all feature columns with %- prefix
+        expand_all_cols = [
+            c for c in dataframe.columns
+            if c.startswith("%-")
+        ]
+
+        for lag in self.include_shifted_candles:
+            for col in expand_all_cols:
+                dataframe[f"{col}-lag{lag}"] = dataframe[col].shift(lag)
+
+        return dataframe
+
     def _feature_engineering_expand_all(self, dataframe: pd.DataFrame, **kwargs) -> pd.DataFrame:
-        """Add period-based features (freqtrade style)"""
         for period in self.periods:
             dataframe[f"%-rsi-{period}"] = ta.RSI(dataframe, timeperiod=period)
             dataframe[f"%-mfi-{period}"] = ta.MFI(dataframe, timeperiod=period)
@@ -179,8 +212,8 @@ class QuickAdapterV5Dataset(AlphaDataset):
 
     def _feature_engineering_standard(self, dataframe: pd.DataFrame, **kwargs) -> pd.DataFrame:
         """Add time features (freqtrade style)"""
-        dataframe[f"%-day_of_week"] = (dataframe["datetime"].dt.weekday + 1) / 7
-        dataframe[f"%-hour_of_day"] = (dataframe["datetime"].dt.hour + 1) / 25
+        # dataframe[f"%-day_of_week"] = (dataframe["datetime"].dt.weekday + 1) / 7
+        # dataframe[f"%-hour_of_day"] = (dataframe["datetime"].dt.hour + 1) / 25
         return dataframe
 
     def _set_freqai_targets(self, dataframe: pd.DataFrame, **kwargs) -> pd.DataFrame:
@@ -203,7 +236,7 @@ class QuickAdapterV5Dataset(AlphaDataset):
             - maxima: binary indicator for maxima points
         """
         # Initialize extrema column
-        dataframe["&s-extrema"] = 0
+        extrema_values = np.zeros(len(dataframe))
 
         # Find local minima (using low prices)
         min_peaks = argrelextrema(
@@ -219,22 +252,29 @@ class QuickAdapterV5Dataset(AlphaDataset):
             order=self.label_period_candles
         )
 
-        # Mark minima points
+        # Mark extrema values
         for mp in min_peaks[0]:
-            dataframe.at[mp, "&s-extrema"] = -1
-
-        # Mark maxima points
+            extrema_values[mp] = -1
         for mp in max_peaks[0]:
-            dataframe.at[mp, "&s-extrema"] = 1
+            extrema_values[mp] = 1
 
         # Create binary indicator columns
-        dataframe["minima"] = np.where(dataframe["&s-extrema"] == -1, 1, 0)
-        dataframe["maxima"] = np.where(dataframe["&s-extrema"] == 1, 1, 0)
+        minima_values = np.where(extrema_values == -1, 1, 0)
+        maxima_values = np.where(extrema_values == 1, 1, 0)
 
         # Smooth extrema labels with gaussian window (freqtrade style)
-        dataframe['&s-extrema'] = dataframe['&s-extrema'].rolling(
+        extrema_series = pd.Series(extrema_values).rolling(
             window=5, win_type='gaussian', center=True
         ).mean(std=0.5)
+
+        # Add all columns at once using assign (better performance)
+        dataframe = dataframe.assign(
+            **{
+                "&s-extrema": extrema_series.values,
+                "minima": minima_values,
+                "maxima": maxima_values
+            }
+        )
 
         return dataframe
 

@@ -52,7 +52,6 @@ def get_datafeed() -> BaseDatafeed:
         print(_("没有配置要使用的数据服务，请修改全局配置中的datafeed相关内容"))
     else:
         module_name: str = f"vnpy_{datafeed_name}"
-
         # Try to import datafeed module
         try:
             module: ModuleType = import_module(module_name)
