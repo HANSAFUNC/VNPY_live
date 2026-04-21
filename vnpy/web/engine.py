@@ -337,15 +337,15 @@ class WebEngine(BaseEngine):
                                         <div class="stats-grid">
                                             <div class="stat-item">
                                                 <div class="stat-label">总收益率</div>
-                                                <div class="stat-value" :class="stats.total_return >= 0 ? 'profit' : 'loss'">{{ stats.total_return.toFixed(2) }}%</div>
+                                                <div class="stat-value" :class="(stats?.total_return || 0) >= 0 ? 'profit' : 'loss'">{{ (stats?.total_return || 0).toFixed(2) }}%</div>
                                             </div>
                                             <div class="stat-item">
                                                 <div class="stat-label">年化收益</div>
-                                                <div class="stat-value" :class="stats.annual_return >= 0 ? 'profit' : 'loss'">{{ stats.annual_return.toFixed(2) }}%</div>
+                                                <div class="stat-value" :class="(stats?.annual_return || 0) >= 0 ? 'profit' : 'loss'">{{ (stats?.annual_return || 0).toFixed(2) }}%</div>
                                             </div>
                                             <div class="stat-item">
                                                 <div class="stat-label">最大回撤</div>
-                                                <div class="stat-value loss">{{ stats.max_drawdown.toFixed(2) }}%</div>
+                                                <div class="stat-value loss">{{ (stats?.max_drawdown || 0).toFixed(2) }}%</div>
                                             </div>
                                         </div>
                                     </el-card>
@@ -358,15 +358,15 @@ class WebEngine(BaseEngine):
                                         <div class="stats-grid">
                                             <div class="stat-item">
                                                 <div class="stat-label">夏普比率</div>
-                                                <div class="stat-value">{{ stats.sharpe_ratio.toFixed(2) }}</div>
+                                                <div class="stat-value">{{ (stats?.sharpe_ratio || 0).toFixed(2) }}</div>
                                             </div>
                                             <div class="stat-item">
                                                 <div class="stat-label">胜率</div>
-                                                <div class="stat-value">{{ stats.win_rate.toFixed(1) }}%</div>
+                                                <div class="stat-value">{{ (stats?.win_rate || 0).toFixed(1) }}%</div>
                                             </div>
                                             <div class="stat-item">
                                                 <div class="stat-label">盈亏比</div>
-                                                <div class="stat-value">{{ stats.profit_factor.toFixed(2) }}</div>
+                                                <div class="stat-value">{{ (stats?.profit_factor || 0).toFixed(2) }}</div>
                                             </div>
                                         </div>
                                     </el-card>
@@ -379,15 +379,15 @@ class WebEngine(BaseEngine):
                                         <div class="stats-grid">
                                             <div class="stat-item">
                                                 <div class="stat-label">总交易次数</div>
-                                                <div class="stat-value">{{ stats.total_trades }}</div>
+                                                <div class="stat-value">{{ stats?.total_trades || 0 }}</div>
                                             </div>
                                             <div class="stat-item">
                                                 <div class="stat-label">盈利次数</div>
-                                                <div class="stat-value profit">{{ stats.winning_trades }}</div>
+                                                <div class="stat-value profit">{{ stats?.winning_trades || 0 }}</div>
                                             </div>
                                             <div class="stat-item">
                                                 <div class="stat-label">亏损次数</div>
-                                                <div class="stat-value loss">{{ stats.losing_trades }}</div>
+                                                <div class="stat-value loss">{{ stats?.losing_trades || 0 }}</div>
                                             </div>
                                         </div>
                                     </el-card>
