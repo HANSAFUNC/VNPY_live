@@ -1,6 +1,6 @@
 """数据模型模板"""
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
@@ -79,6 +79,23 @@ class StatsData(BaseModel):
     avg_loss: float  # 平均亏损
 
 
+class SignalStock(BaseModel):
+    """信号股票"""
+    vt_symbol: str
+    signal: int  # 1=买入, -1=卖出
+    strength: float = 1.0  # 信号强度
+    datetime: str = ""
+    close_price: float = 0.0
+    volume: float = 0.0
+
+
+class StockPoolData(BaseModel):
+    """股票池数据"""
+    buy_stocks: List[SignalStock] = []  # 今日买入股票
+    sell_stocks: List[SignalStock] = []  # 今日卖出股票
+    last_update: str = ""
+
+
 class DashboardData(BaseModel):
     """看板数据"""
     account: Dict[str, float]
@@ -86,8 +103,11 @@ class DashboardData(BaseModel):
     trades: List[TradeView]
     strategies: List[StrategyStatus]
     signals: List[SignalView]
-    chart_data: Dict[str, List[CandleData]] = {}  # 新增：K线数据
-    stats: Optional[StatsData] = None  # 新增：统计数据
+    chart_data: Dict[str, List[CandleData]] = {}
+    available_symbols: List[str] = []  # Lab 中所有可用股票
+    current_symbol: str = ""  # 当前选中的股票
+    stock_pool: StockPoolData = Field(default_factory=StockPoolData)  # 股票池
+    stats: Optional[StatsData] = None
     timestamp: str = ""
 
     def __init__(self, **data):

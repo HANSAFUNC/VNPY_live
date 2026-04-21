@@ -27,7 +27,11 @@ from vnpy.trader.event import (
 )
 
 from .api import strategy_router, trading_router, account_router
-from .templates import DashboardData, StrategyStatus, PositionView, TradeView, CandleData, StatsData
+from .templates import (
+    DashboardData, AccountData, PositionView, TradeView,
+    StrategyStatus, SignalView, CandleData, StatsData,
+    SignalStock, StockPoolData  # 新增
+)
 
 
 class ConnectionManager:
@@ -73,6 +77,18 @@ class WebEngine(BaseEngine):
         self.event_engine = event_engine
         self.manager = ConnectionManager()
 
+        # 股票池数据
+        self.stock_pool_data: StockPoolData = StockPoolData()
+
+        # 从 lab 加载的可用股票列表
+        self.available_symbols: List[str] = []
+
+        # 当前选中的股票（用于 K 线图）
+        self.current_symbol: str = ""
+
+        # 所有股票的历史 K 线缓存
+        self.all_candles: Dict[str, List[CandleData]] = {}
+
         # 数据缓存
         self.ticks: Dict[str, TickData] = {}
         self.trades: Dict[str, TradeData] = {}
@@ -92,8 +108,12 @@ class WebEngine(BaseEngine):
         # 注册事件监听
         self._register_events()
 
-        # 生成示例数据（实际应从策略获取）
-        self.candles["000001.SSE"] = self._generate_sample_candles("000001.SSE")
+        # 初始化数据
+        self.stock_pool_data = self._generate_sample_stock_pool()
+        self.available_symbols = self._load_available_symbols()
+        if self.available_symbols:
+            self.current_symbol = self.available_symbols[0]
+            self.all_candles[self.current_symbol] = self._generate_sample_candles(self.current_symbol, num=200)
         self.stats = self._generate_sample_stats()
 
     def _create_app(self) -> FastAPI:
@@ -299,16 +319,103 @@ class WebEngine(BaseEngine):
                             </el-row>
                         </el-tab-pane>
 
-                        <!-- Tab 2: K线图表 -->
+                        <!-- Tab 2: 股票池 -->
+                        <el-tab-pane label="股票池" name="stock_pool">
+                            <el-row :gutter="20">
+                                <!-- 今日买入 -->
+                                <el-col :span="12">
+                                    <el-card>
+                                        <template #header>
+                                            <span style="color: #f56c6c; font-weight: bold;">📈 今日买入信号</span>
+                                            <el-tag type="danger" size="small" style="margin-left: 10px;">
+                                                {{ stockPool.buy_stocks?.length || 0 }} 只
+                                            </el-tag>
+                                        </template>
+                                        <el-table :data="stockPool.buy_stocks || []" stripe style="width: 100%">
+                                            <el-table-column prop="vt_symbol" label="股票代码" width="120"></el-table-column>
+                                            <el-table-column prop="close_price" label="收盘价" width="100">
+                                                <template #default="scope">¥{{ scope.row.close_price?.toFixed(2) || '--' }}</template>
+                                            </el-table-column>
+                                            <el-table-column prop="strength" label="信号强度">
+                                                <template #default="scope">
+                                                    <el-progress
+                                                        :percentage="Math.round((scope.row.strength || 0) * 100)"
+                                                        :color="'#f56c6c'"
+                                                        :show-text="true">
+                                                    </el-progress>
+                                                </template>
+                                            </el-table-column>
+                                            <el-table-column prop="volume" label="成交量" width="120">
+                                                <template #default="scope">{{ formatVolume(scope.row.volume) }}</template>
+                                            </el-table-column>
+                                        </el-table>
+                                    </el-card>
+                                </el-col>
+
+                                <!-- 今日卖出 -->
+                                <el-col :span="12">
+                                    <el-card>
+                                        <template #header>
+                                            <span style="color: #67c23a; font-weight: bold;">📉 今日卖出信号</span>
+                                            <el-tag type="success" size="small" style="margin-left: 10px;">
+                                                {{ stockPool.sell_stocks?.length || 0 }} 只
+                                            </el-tag>
+                                        </template>
+                                        <el-table :data="stockPool.sell_stocks || []" stripe style="width: 100%">
+                                            <el-table-column prop="vt_symbol" label="股票代码" width="120"></el-table-column>
+                                            <el-table-column prop="close_price" label="收盘价" width="100">
+                                                <template #default="scope">¥{{ scope.row.close_price?.toFixed(2) || '--' }}</template>
+                                            </el-table-column>
+                                            <el-table-column prop="strength" label="信号强度">
+                                                <template #default="scope">
+                                                    <el-progress
+                                                        :percentage="Math.round((scope.row.strength || 0) * 100)"
+                                                        :color="'#67c23a'"
+                                                        :show-text="true">
+                                                    </el-progress>
+                                                </template>
+                                            </el-table-column>
+                                            <el-table-column prop="volume" label="成交量" width="120">
+                                                <template #default="scope">{{ formatVolume(scope.row.volume) }}</template>
+                                            </el-table-column>
+                                        </el-table>
+                                    </el-card>
+                                </el-col>
+                            </el-row>
+
+                            <!-- 股票池更新时间 -->
+                            <el-row style="margin-top: 20px;">
+                                <el-col :span="24" style="text-align: center; color: #909399;">
+                                    股票池更新时间：{{ stockPool.last_update || '--' }}
+                                </el-col>
+                            </el-row>
+                        </el-tab-pane>
+
+                        <!-- Tab 3: K线图表 -->
                         <el-tab-pane label="K线图表" name="charts">
                             <el-row :gutter="20">
                                 <el-col :span="24">
                                     <el-card>
                                         <template #header>
-                                            <span>K线图表</span>
-                                            <el-select v-model="selectedSymbol" size="small" style="width: 150px; margin-left: 10px;">
-                                                <el-option v-for="symbol in availableSymbols" :key="symbol" :label="symbol" :value="symbol"></el-option>
-                                            </el-select>
+                                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                                <span>K线图表</span>
+                                                <div>
+                                                    <span style="margin-right: 10px; color: #909399;">选择股票：</span>
+                                                    <el-select
+                                                        v-model="selectedSymbol"
+                                                        size="small"
+                                                        style="width: 150px;"
+                                                        @change="onStockChange"
+                                                        placeholder="选择股票">
+                                                        <el-option
+                                                            v-for="symbol in availableSymbols"
+                                                            :key="symbol"
+                                                            :label="symbol"
+                                                            :value="symbol">
+                                                        </el-option>
+                                                    </el-select>
+                                                </div>
+                                            </div>
                                         </template>
                                         <div id="kline-chart" style="height: 500px;"></div>
                                     </el-card>
@@ -326,7 +433,7 @@ class WebEngine(BaseEngine):
                             </el-row>
                         </el-tab-pane>
 
-                        <!-- Tab 3: 数据分析 -->
+                        <!-- Tab 4: 数据分析 -->
                         <el-tab-pane label="数据分析" name="analysis">
                             <el-row :gutter="20">
                                 <el-col :span="8">
@@ -468,14 +575,22 @@ class WebEngine(BaseEngine):
 
     def _get_dashboard_data(self) -> DashboardData:
         """获取看板数据"""
+        # 返回当前选中股票的 K 线数据
+        chart_data = {}
+        if self.current_symbol and self.current_symbol in self.all_candles:
+            chart_data = {self.current_symbol: self.all_candles[self.current_symbol]}
+
         return DashboardData(
             account=self._get_account_data(),
             positions=self._get_position_data(),
             trades=self._get_trade_data(),
             strategies=self._get_strategy_data(),
             signals=self._get_signal_data(),
-            chart_data=self._get_chart_data(),  # 新增
-            stats=self._get_stats_data()  # 新增
+            chart_data=chart_data,
+            available_symbols=self.available_symbols,  # 所有可用股票
+            current_symbol=self.current_symbol,  # 当前选中
+            stock_pool=self.stock_pool_data,  # 股票池
+            stats=self._get_stats_data()
         )
 
     def _get_account_data(self) -> dict:
@@ -572,6 +687,59 @@ class WebEngine(BaseEngine):
 
         return candles
 
+    def _generate_sample_stock_pool(self) -> StockPoolData:
+        """生成示例股票池数据"""
+        from datetime import datetime
+
+        # 今日买入股票
+        buy_stocks = [
+            SignalStock(vt_symbol="000001.SSE", signal=1, strength=0.85,
+                       datetime=datetime.now().strftime("%Y-%m-%d"), close_price=12.50, volume=10000),
+            SignalStock(vt_symbol="000002.SSE", signal=1, strength=0.72,
+                       datetime=datetime.now().strftime("%Y-%m-%d"), close_price=8.30, volume=5000),
+            SignalStock(vt_symbol="600519.SSE", signal=1, strength=0.91,
+                       datetime=datetime.now().strftime("%Y-%m-%d"), close_price=1680.00, volume=800),
+        ]
+
+        # 今日卖出股票
+        sell_stocks = [
+            SignalStock(vt_symbol="000300.SSE", signal=-1, strength=0.78,
+                       datetime=datetime.now().strftime("%Y-%m-%d"), close_price=4.20, volume=20000),
+            SignalStock(vt_symbol="600036.SSE", signal=-1, strength=0.65,
+                       datetime=datetime.now().strftime("%Y-%m-%d"), close_price=35.60, volume=3000),
+        ]
+
+        return StockPoolData(
+            buy_stocks=buy_stocks,
+            sell_stocks=sell_stocks,
+            last_update=datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        )
+
+    def _load_available_symbols(self) -> List[str]:
+        """从 lab 加载可用股票列表"""
+        return [
+            "000001.SSE",  # 平安银行
+            "000002.SSE",  # 万科A
+            "000300.SSE",  # 沪深300
+            "600519.SSE",  # 贵州茅台
+            "600036.SSE",  # 招商银行
+            "000858.SSE",  # 五粮液
+            "002415.SSE",  # 海康威视
+            "600276.SSE",  # 恒瑞医药
+            "600030.SSE",  # 中信证券
+            "601318.SSE",  # 中国平安
+        ]
+
+    def set_current_symbol(self, vt_symbol: str) -> bool:
+        """设置当前选中的股票"""
+        if vt_symbol in self.available_symbols:
+            self.current_symbol = vt_symbol
+            # 如果该股票没有 K 线数据，生成示例数据
+            if vt_symbol not in self.all_candles:
+                self.all_candles[vt_symbol] = self._generate_sample_candles(vt_symbol, num=200)
+            return True
+        return False
+
     def _generate_sample_stats(self) -> StatsData:
         """生成示例统计数据（用于测试）"""
         return StatsData(
@@ -631,6 +799,22 @@ class WebEngine(BaseEngine):
             running = message.get("running")
             print(f"Toggle strategy {strategy_name} -> {running}")
             # TODO: 调用策略引擎启停策略
+
+        elif msg_type == "change_stock":
+            # 切换股票
+            symbol = message.get("symbol")
+            if symbol and self.set_current_symbol(symbol):
+                print(f"切换到股票: {symbol}")
+                # 推送更新后的数据
+                await websocket.send_json({
+                    "type": "update",
+                    "data": self._get_dashboard_data().dict()
+                })
+            else:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"无效的股票代码: {symbol}"
+                })
 
     async def start_server(self, host: str = "0.0.0.0", port: int = 8000) -> None:
         """启动 Web 服务器

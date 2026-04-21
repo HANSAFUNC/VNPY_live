@@ -33,6 +33,13 @@ const app = createApp({
         // 信号数据
         const signals = ref([]);
 
+        // 股票池
+        const stockPool = ref({
+            buy_stocks: [],
+            sell_stocks: [],
+            last_update: ''
+        });
+
         // Tab 相关
         const activeTab = ref('trading');
         const selectedSymbol = ref('');
@@ -146,13 +153,24 @@ const app = createApp({
                         signals.value = data.signals;
                     }
 
-                    // 更新图表和统计数据
+                    // 新增：更新股票池
+                    if (data.stock_pool) {
+                        stockPool.value = data.stock_pool;
+                    }
+
+                    // 新增：更新可用股票列表
+                    if (data.available_symbols) {
+                        availableSymbols.value = data.available_symbols;
+                    }
+
+                    // 新增：同步当前选中股票
+                    if (data.current_symbol) {
+                        selectedSymbol.value = data.current_symbol;
+                    }
+
+                    // 更新 K 线数据
                     if (data.chart_data) {
                         candles.value = data.chart_data;
-                        availableSymbols.value = Object.keys(data.chart_data);
-                        if (!selectedSymbol.value && availableSymbols.value.length > 0) {
-                            selectedSymbol.value = availableSymbols.value[0];
-                        }
                     }
                     if (data.stats) {
                         stats.value = data.stats;
@@ -206,6 +224,19 @@ const app = createApp({
             ElMessage.success('数据已刷新');
         };
 
+        // 切换股票
+        const onStockChange = (symbol) => {
+            console.log('切换到股票:', symbol);
+
+            // 发送消息到后端请求切换股票
+            if (ws.value && ws.value.readyState === WebSocket.OPEN) {
+                ws.value.send(JSON.stringify({
+                    type: 'change_stock',
+                    symbol: symbol
+                }));
+            }
+        };
+
         // 显示通知
         const showNotification = (title, message) => {
             ElNotification({
@@ -230,14 +261,27 @@ const app = createApp({
 
         // 更新 K 线图表
         const updateKlineChart = () => {
-            if (!klineChart || !candles.value[selectedSymbol.value]) return;
+            if (!klineChart) {
+                initCharts();
+            }
 
-            const data = candles.value[selectedSymbol.value];
+            // 从 candles 对象中获取当前选中股票的数据
+            const symbol = selectedSymbol.value;
+            if (!symbol || !candles.value[symbol]) {
+                console.log('无 K 线数据:', symbol);
+                return;
+            }
+
+            const data = candles.value[symbol];
             const dates = data.map(d => d.timestamp);
             const values = data.map(d => [d.open, d.close, d.low, d.high]);
             const volumes = data.map(d => d.volume);
 
             const option = {
+                title: {
+                    text: symbol + ' - K线图',
+                    left: 'center'
+                },
                 tooltip: {
                     trigger: 'axis',
                     axisPointer: { type: 'cross' }
@@ -305,7 +349,7 @@ const app = createApp({
                 ]
             };
 
-            klineChart.setOption(option);
+            klineChart.setOption(option, true);
         };
 
         // 初始化统计图表
@@ -374,6 +418,15 @@ const app = createApp({
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2
             });
+        };
+
+        // 格式化成交量
+        const formatVolume = (volume) => {
+            if (!volume) return '--';
+            if (volume >= 10000) {
+                return (volume / 10000).toFixed(2) + '万';
+            }
+            return volume.toString();
         };
 
         // ==================== Watchers ====================
@@ -454,6 +507,11 @@ const app = createApp({
             selectedSymbol,
             availableSymbols,
             stats,
+
+            // 股票池相关
+            stockPool,
+            formatVolume,
+            onStockChange,
 
             // 方法
             toggleStrategy,
