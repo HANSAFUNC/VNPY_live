@@ -86,11 +86,8 @@ class RpcWebEngine(WebEngine):
         self.stock_pool_data = self._generate_sample_stock_pool()
         self.available_symbols = self._load_available_symbols()
 
-        # 从数据库加载历史K线数据（仅在RPC连接后加载）
-        if self._connected:
-            from datetime import datetime
-            for symbol in self.available_symbols:
-                self.all_candles[symbol] = self._load_historical_candles(symbol, days=60)
+        # 历史K线数据改为按需懒加载（不在初始化时加载）
+        self.all_candles: Dict[str, List[CandleData]] = {}
 
         if self.available_symbols:
             self.current_symbol = self.available_symbols[0]
@@ -124,15 +121,8 @@ class RpcWebEngine(WebEngine):
             self._connected = True
             print(f"✓ RPC连接成功: {self.req_address}")
 
-            # RPC连接成功后加载历史数据
-            print("正在通过RPC加载历史数据...")
-            loaded_count = 0
-            for symbol in self.available_symbols:
-                candles = self._load_historical_candles(symbol, days=60)
-                if candles:
-                    self.all_candles[symbol] = candles
-                    loaded_count += 1
-            print(f"历史数据加载完成: {loaded_count}/{len(self.available_symbols)} 个合约")
+            # RPC连接成功，历史数据改为按需懒加载
+            print(f"RPC连接成功，{len(self.available_symbols)} 个合约历史数据将按需加载")
 
             return True
         except Exception as e:
@@ -301,7 +291,7 @@ class RpcWebEngine(WebEngine):
         return trades
 
     def _load_historical_candles(self, vt_symbol: str, days: int = 60) -> list:
-        """通过RPC从远程服务器加载历史K线数据
+        """通过RPC从远程服务器加载历史K线数据（按需加载）
 
         Parameters
         ----------
@@ -315,6 +305,10 @@ class RpcWebEngine(WebEngine):
         list
             K线数据列表
         """
+        # 检查缓存
+        if vt_symbol in self.all_candles and self.all_candles[vt_symbol]:
+            return self.all_candles[vt_symbol]
+
         if not self._connected or not self.rpc_client:
             return []
 
@@ -323,7 +317,6 @@ class RpcWebEngine(WebEngine):
             from vnpy.trader.object import HistoryRequest
             from vnpy.trader.constant import Exchange, Interval
             from .templates import CandleData
-            from time import sleep
 
             symbol, exchange_str = vt_symbol.split('.')
             exchange = Exchange(exchange_str)
@@ -341,20 +334,20 @@ class RpcWebEngine(WebEngine):
                 end=end
             )
 
-            # 通过RPC查询历史数据（带重试）
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    bars = self.rpc_client.query_history(req, "")
-                    break
-                except Exception as e:
-                    if "Operation cannot be accomplished in current state" in str(e):
-                        if attempt < max_retries - 1:
-                            sleep(0.2)  # 等待 socket 就绪
-                            continue
-                    raise
+            # 通过RPC查询历史数据（短超时，避免阻塞）
+            # 注意：vnpy.rpc 默认超时30秒，这里接受可能的超时
+            try:
+                bars = self.rpc_client.query_history(req, "")
+            except Exception as e:
+                if "timeout" in str(e).lower() or "No response" in str(e):
+                    # 超时或无响应，记录但不阻塞
+                    print(f"  {vt_symbol} 历史数据查询超时，将使用空数据")
+                    return []
+                raise
 
             if not bars:
+                # 无数据（可能是数据库中无此日期范围数据）
+                print(f"  {vt_symbol} 无历史数据")
                 return []
 
             # 转换为 CandleData
@@ -369,9 +362,11 @@ class RpcWebEngine(WebEngine):
                     volume=bar.volume
                 ))
 
+            print(f"  {vt_symbol} 加载 {len(candles)} 条历史数据")
             return candles
 
-        except Exception:
-            # 静默失败，返回空列表
+        except Exception as e:
+            # 其他错误（如数据不存在），静默返回空
+            print(f"  {vt_symbol} 历史数据加载失败: {e}")
             return []
             return []
