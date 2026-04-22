@@ -42,6 +42,7 @@ class LiveTrader:
     def __init__(
         self,
         paper_trading: bool = True,
+        enable_rpc: bool = False,
     ):
         """
         初始化
@@ -50,13 +51,17 @@ class LiveTrader:
         ----------
         paper_trading : bool
             True=模拟盘（本地撮合），False=实盘（真实交易）
+        enable_rpc : bool
+            是否启用 RPC 服务（供 Web Dashboard 连接）
         """
         self.paper_trading = paper_trading
+        self.enable_rpc = enable_rpc
 
         self.event_engine = EventEngine()
         self.main_engine = MainEngine(self.event_engine)
         self.lab = AlphaLab(str(LAB_PATH))
         self.live_engine: TradeEngine | None = None
+        self.rpc_engine = None
         self.gateway_name = "XT"  # 迅投研网关
 
         # 信号文件路径（由选股器生成）
@@ -216,7 +221,13 @@ class LiveTrader:
             cash_ratio=self.cash_ratio
         )
 
+        # 启动 RPC 服务（如启用）
+        if self.enable_rpc:
+            self._start_rpc_service()
+
         logger.info(f"\n{mode_str}交易已启动！")
+        if self.enable_rpc:
+            logger.info("RPC 服务已启动: tcp://*:2014 (REP), tcp://*:2015 (PUB)")
         logger.info("按 Ctrl+C 停止交易")
         logger.info("=" * 60)
 
@@ -233,6 +244,30 @@ class LiveTrader:
             self.stop()
             raise
 
+    def _start_rpc_service(self):
+        """启动 RPC 服务"""
+        try:
+            from vnpy_rpcservice import RpcEngine
+
+            self.rpc_engine = RpcEngine(
+                main_engine=self.main_engine,
+                event_engine=self.event_engine
+            )
+
+            self.rpc_engine.start(
+                rep_address="tcp://*:2014",
+                pub_address="tcp://*:2015"
+            )
+
+            logger.info("[RPC] 服务启动成功")
+            logger.info("  REP 地址: tcp://*:2014")
+            logger.info("  PUB 地址: tcp://*:2015")
+        except ImportError:
+            logger.error("[RPC] 未安装 vnpy_rpcservice，跳过 RPC 服务启动")
+            logger.error("  安装命令: pip install vnpy_rpcservice")
+        except Exception as e:
+            logger.error(f"[RPC] 启动失败: {e}")
+
     def stop(self) -> None:
         """停止交易"""
         mode_str = "模拟盘" if self.paper_trading else "实盘"
@@ -240,6 +275,10 @@ class LiveTrader:
 
         if self.live_engine:
             self.live_engine.stop_trading()
+
+        if self.rpc_engine:
+            self.rpc_engine.stop()
+            logger.info("[RPC] 服务已停止")
 
         self.main_engine.close()
 
@@ -378,6 +417,8 @@ def main():
                        help='运行模式: live=实盘, paper=模拟盘, backtest=回测')
     parser.add_argument('--gateway', default='XT', help='交易网关名称')
     parser.add_argument('--capital', type=float, default=1_000_000, help='初始资金（默认100万）')
+    parser.add_argument('--enable-rpc', action='store_true',
+                       help='启用 RPC 服务（供 Web Dashboard 连接）')
 
     args = parser.parse_args()
 
@@ -391,6 +432,7 @@ def main():
 
         trader = LiveTrader(
             paper_trading=True,
+            enable_rpc=args.enable_rpc,
         )
         trader.gateway_name = args.gateway  # 使用指定网关获取行情
         trader.capital = args.capital
@@ -419,6 +461,7 @@ def main():
 
         trader = LiveTrader(
             paper_trading=False,
+            enable_rpc=args.enable_rpc,
         )
         trader.gateway_name = args.gateway
         trader.capital = args.capital
