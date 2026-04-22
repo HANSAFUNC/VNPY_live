@@ -2,9 +2,13 @@
 
 支持远程连接交易服务器，所有数据通过RPC获取。
 """
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, TYPE_CHECKING
 from vnpy.event import EventEngine, Event
 from vnpy.trader.engine import BaseEngine, MainEngine
+
+if TYPE_CHECKING:
+    from vnpy.alpha.strategy import TradeEngine
+
 from vnpy.trader.object import (
     TickData, TradeData, OrderData, PositionData, AccountData
 )
@@ -28,9 +32,6 @@ class RpcWebEngine(WebEngine):
         event_engine: EventEngine,
         req_address: str = "tcp://localhost:2014",
         sub_address: str = "tcp://localhost:2015",
-        mock_capital: float = 1_000_000.0,
-        mock_commission_rate: float = 0.0003,
-        mock_tax_rate: float = 0.001,
     ) -> None:
         """初始化RPC Web引擎
 
@@ -44,12 +45,6 @@ class RpcWebEngine(WebEngine):
             RPC服务端请求地址
         sub_address : str
             RPC服务端推送地址
-        mock_capital : float
-            模拟盘起始资金（默认100万）
-        mock_commission_rate : float
-            模拟盘手续费率（默认万分之3）
-        mock_tax_rate : float
-            模拟盘印花税率（默认千分之1）
         """
         # 调用BaseEngine初始化（跳过WebEngine的__init__）
         BaseEngine.__init__(self, main_engine, event_engine, self.engine_name)
@@ -59,14 +54,8 @@ class RpcWebEngine(WebEngine):
         self.rpc_client: Optional = None
         self._connected = False
 
-        # 模拟盘配置
-        self.mock_capital = mock_capital
-        self.mock_commission_rate = mock_commission_rate
-        self.mock_tax_rate = mock_tax_rate
-        self._mock_account: Optional[dict] = None
-
         # LiveAlphaEngine 引用（用于获取模拟盘数据）
-        self.live_engine: Optional = None
+        self.live_engine: Optional["TradeEngine"] = None
 
         # 从父类复制必要的初始化
         from .engine import ConnectionManager
@@ -209,7 +198,7 @@ class RpcWebEngine(WebEngine):
         return self._get_mock_account_data()
 
     def _get_mock_account_data(self) -> dict:
-        """获取模拟账户数据（用于演示）"""
+        """获取模拟账户数据（降级使用）"""
         return {
             "balance": 1000000.0,
             "available": 950000.0,
