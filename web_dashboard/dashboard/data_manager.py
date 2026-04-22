@@ -78,6 +78,8 @@ class DataManager:
         if event_type in ("eTimer", "eRpcLog"):
             return
 
+        print(f"[DataManager] 收到事件: {event_type}, 数据: {type(data).__name__}")
+
         if event_type == "eAccount":
             self.account = self._format_account(data)
             await self._broadcast({"type": "account", "data": self.account})
