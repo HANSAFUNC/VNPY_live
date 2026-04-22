@@ -1,10 +1,16 @@
 """FastAPI 应用"""
+from pathlib import Path
+
 from fastapi import FastAPI, WebSocket
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from contextlib import asynccontextmanager
 
 from .data_manager import DataManager
+
+# 获取静态文件目录（相对于本文件位置）
+STATIC_DIR = Path(__file__).parent.parent / "static"
+TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
 
 data_manager = DataManager()
 
@@ -25,7 +31,7 @@ app = FastAPI(
     lifespan=lifespan
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 
 @app.get("/", response_class=HTMLResponse)
