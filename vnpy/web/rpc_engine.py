@@ -79,10 +79,11 @@ class RpcWebEngine(WebEngine):
         self.stock_pool_data = self._generate_sample_stock_pool()
         self.available_symbols = self._load_available_symbols()
 
-        # 从数据库加载历史K线数据
-        from datetime import datetime
-        for symbol in self.available_symbols:
-            self.all_candles[symbol] = self._load_historical_candles(symbol, days=60)
+        # 从数据库加载历史K线数据（仅在RPC连接后加载）
+        if self._connected:
+            from datetime import datetime
+            for symbol in self.available_symbols:
+                self.all_candles[symbol] = self._load_historical_candles(symbol, days=60)
 
         if self.available_symbols:
             self.current_symbol = self.available_symbols[0]
@@ -108,6 +109,13 @@ class RpcWebEngine(WebEngine):
             )
             self._connected = True
             print(f"✓ RPC连接成功: {self.req_address}")
+
+            # RPC连接成功后加载历史数据
+            print("正在通过RPC加载历史数据...")
+            for symbol in self.available_symbols:
+                self.all_candles[symbol] = self._load_historical_candles(symbol, days=60)
+            print(f"历史数据加载完成: {len(self.available_symbols)} 个合约")
+
             return True
         except Exception as e:
             print(f"✗ RPC连接失败: {e}")
@@ -176,3 +184,71 @@ class RpcWebEngine(WebEngine):
                 "time": trade.datetime.strftime("%H:%M:%S") if trade.datetime else "--"
             })
         return trades
+
+    def _load_historical_candles(self, vt_symbol: str, days: int = 60) -> list:
+        """通过RPC从远程服务器加载历史K线数据
+
+        Parameters
+        ----------
+        vt_symbol : str
+            合约代码 (如: 000001.SZ)
+        days : int
+            查询天数
+
+        Returns
+        -------
+        list
+            K线数据列表
+        """
+        if not self._connected:
+            # 未连接时返回空数据
+            return []
+
+        try:
+            from datetime import datetime, timedelta
+            from vnpy.trader.object import HistoryRequest
+            from vnpy.trader.constant import Exchange, Interval
+            from .templates import CandleData
+
+            symbol, exchange_str = vt_symbol.split('.')
+            exchange = Exchange(exchange_str)
+
+            # 计算时间范围
+            end = datetime.now()
+            start = end - timedelta(days=days)
+
+            # 创建历史数据请求
+            req = HistoryRequest(
+                symbol=symbol,
+                exchange=exchange,
+                interval=Interval.DAILY,
+                start=start,
+                end=end
+            )
+
+            # 通过RPC查询历史数据
+            # RpcClient会将请求发送到远程服务器的MainEngine.query_history
+            bars = self.main_engine.query_history(req, "")
+
+            if not bars:
+                print(f"RPC查询历史数据为空: {vt_symbol}")
+                return []
+
+            # 转换为 CandleData
+            candles = []
+            for bar in bars:
+                candles.append(CandleData(
+                    timestamp=bar.datetime.strftime("%Y-%m-%d"),
+                    open=bar.open_price,
+                    high=bar.high_price,
+                    low=bar.low_price,
+                    close=bar.close_price,
+                    volume=bar.volume
+                ))
+
+            print(f"RPC加载 {vt_symbol} 历史数据: {len(candles)} 条")
+            return candles
+
+        except Exception as e:
+            print(f"RPC加载历史数据失败 {vt_symbol}: {e}")
+            return []
