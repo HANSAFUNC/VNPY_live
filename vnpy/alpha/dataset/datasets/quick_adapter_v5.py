@@ -1,5 +1,6 @@
 """QuickAdapterV5 feature dataset from freqtrade."""
 
+import warnings
 import polars as pl
 import pandas as pd
 import numpy as np
@@ -7,6 +8,10 @@ import talib.abstract as ta
 from scipy.signal import argrelextrema
 from technical import qtpylib
 import pandas_ta as pta
+from pandas.errors import PerformanceWarning
+
+# 抑制 DataFrame 碎片化警告
+warnings.filterwarnings("ignore", category=PerformanceWarning)
 
 from vnpy.alpha import AlphaDataset
 

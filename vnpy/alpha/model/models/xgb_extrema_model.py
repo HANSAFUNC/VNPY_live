@@ -1,19 +1,18 @@
-"""XGBoost 极值选股模型 - 使用渐进式阈值预热机制。"""
+"""XGBoost 极值选股模型 - 使用动态阈值计算。"""
 
 import logging
-from typing import cast
 
 import numpy as np
 import polars as pl
 import scipy.stats
-import xgboost as xgb
+from sklearn.ensemble import IsolationForest
+from sklearn.preprocessing import MinMaxScaler
 from xgboost import XGBRegressor
 from vnpy.alpha.dataset import AlphaDataset, Segment
 from vnpy.alpha.model import AlphaModel
 
 
 # 极值检测常量
-MIN_CANDLES_FOR_DYNAMIC = 50
 DEFAULT_MAXIMA_THRESHOLD = 2.0
 DEFAULT_MINIMA_THRESHOLD = -2.0
 DEFAULT_DI_CUTOFF = 2.0
@@ -23,8 +22,9 @@ PREDICTION_COL = "&s-extrema"
 class XGBoostExtremaModel(AlphaModel):
     """用于预测股票价格极值（最高点/最低点）的 XGBoost 模型。
 
-    使用来自 freqtrade 的渐进式阈值预热机制，用于自适应
-    极值检测。
+    使用动态阈值机制，基于预测值的分布计算阈值。
+    使用 DI (Deviation Index) 值和 Weibull 分布计算 cutoff。
+    DI 值使用 IsolationForest 多变量异常检测算法（与 freqtrade datasieve 类似）。
     """
 
     # 类级别常量：预测列名和阈值
@@ -32,7 +32,6 @@ class XGBoostExtremaModel(AlphaModel):
     DEFAULT_MAXIMA_THRESHOLD = DEFAULT_MAXIMA_THRESHOLD
     DEFAULT_MINIMA_THRESHOLD = DEFAULT_MINIMA_THRESHOLD
     DEFAULT_DI_CUTOFF = DEFAULT_DI_CUTOFF
-    MIN_CANDLES_FOR_DYNAMIC = MIN_CANDLES_FOR_DYNAMIC
 
     def __init__(
         self,
@@ -42,14 +41,13 @@ class XGBoostExtremaModel(AlphaModel):
         early_stopping_rounds: int = 50,
         eval_metric: str = "rmse",
         seed: int | None = None,
-        # 渐进式阈值参数
-        maxima_threshold: float = DEFAULT_MAXIMA_THRESHOLD,
-        minima_threshold: float = DEFAULT_MINIMA_THRESHOLD,
-        di_cutoff: float = DEFAULT_DI_CUTOFF,
-        min_candles: int = MIN_CANDLES_FOR_DYNAMIC,
         # 动态阈值参数
         num_candles: int = 100,
         label_period_candles: int = 10,
+        # 特征管道（用于 inverse_transform）
+        feature_pipeline=None,
+        # 是否对标签进行缩放（像 freqtrade 一样）
+        scale_label: bool = True,
     ):
         """初始化 XGBoost 极值模型。
 
@@ -67,18 +65,14 @@ class XGBoostExtremaModel(AlphaModel):
             评估指标
         seed : int | None
             随机种子
-        maxima_threshold : float
-            检测极大值的阈值（正 DI 值）
-        minima_threshold : float
-            检测极小值的阈值（负 DI 值）
-        di_cutoff : float
-            DI 基极值检测的截止值
-        min_candles : int
-            动态阈值计算所需的最小 K 线数
         num_candles : int
-            动态阈值计算的 K 线数量
+            动态阈值计算的 K 线数量（用于 frequency 计算）
         label_period_candles : int
             标签周期的 K 线数（用于频率计算）
+        feature_pipeline : optional
+            FreqaiFeaturePipeline 实例，用于特征的 inverse_transform
+        scale_label : bool
+            是否对标签进行缩放（像 freqtrade 一样），默认 True
         """
         self.params: dict = {
             "objective": "reg:squarederror",
@@ -91,95 +85,104 @@ class XGBoostExtremaModel(AlphaModel):
         self.early_stopping_rounds: int = early_stopping_rounds
         self.eval_metric: str = eval_metric
 
-        # 渐进式阈值参数
-        self.maxima_threshold: float = maxima_threshold
-        self.minima_threshold: float = minima_threshold
-        self.di_cutoff: float = di_cutoff
-        self.min_candles: int = min_candles
-
         # 动态阈值参数
         self.num_candles: int = num_candles
         self.label_period_candles: int = label_period_candles
 
+        # 特征管道（用于 inverse_transform）
+        self.feature_pipeline = feature_pipeline
+
+        # 标签缩放器
+        self.scale_label = scale_label
+        self._label_scaler: MinMaxScaler | None = None
+
         # 模型状态
         self.model: XGBRegressor | None = None
         self._feature_names: list[str] | None = None
-
-        # 渐进式阈值的状态跟踪（freqtrade 兼容）
-        self._exchange_candles: int | None = None  # 模型启动时的初始 K 线计数
-        self._predictions_history: np.ndarray | None = None
-        self._prediction_count: int = 0
-        self._historic_predictions: dict[str, pl.DataFrame] = {}
-        self._dynamic_thresholds: dict[str, float] = {
-            "maxima": maxima_threshold,
-            "minima": abs(minima_threshold),
-        }
         self._last_result_df: pl.DataFrame | None = None
+        self._di_model: IsolationForest | None = None
 
-    def _compute_di_values(self, predictions: np.ndarray) -> np.ndarray:
-        """从预测值计算 DI（偏离指标）值。
+    def _fit_di_model(self, features: np.ndarray) -> None:
+        """训练 DI（异常检测）模型。
 
-        DI 值计算为预测值的 z-score：
-        DI = (prediction - mean) / std
-
-        这种标准化有助于识别预测分布中的统计极值。
+        使用 IsolationForest 在特征空间中进行多变量异常检测。
+        这与 freqtrade 使用的 datasieve OutlierDetector 功能类似。
 
         参数
         ----------
-        predictions : np.ndarray
-            模型的原始预测值
+        features : np.ndarray
+            特征数据 (n_samples, n_features)
+        """
+        self._di_model = IsolationForest(
+            n_estimators=100,
+            contamination=0.1,  # 假设 10% 的异常值
+            random_state=self.params.get("seed"),
+            n_jobs=-1,
+        )
+        self._di_model.fit(features)
+
+    def _compute_di_values(self, features: np.ndarray) -> np.ndarray:
+        """从特征数据计算 DI（偏离指标）值。
+
+        使用 IsolationForest 的 anomaly_score 方法计算每个样本的异常分数。
+        这与 freqtrade datasieve 的 OutlierDetector 功能一致。
+
+        参数
+        ----------
+        features : np.ndarray
+            特征数据 (n_samples, n_features)
 
         返回
         -------
         np.ndarray
-            DI 值（z-score），与输入形状相同
+            DI 值（异常分数），形状为 (n_samples,)
 
         注意
         -----
-        - 空数组返回零
-        - 当标准差为零时返回零
+        - 需要在调用前确保已训练好 DI 模型 (_fit_di_model)
+        - 分数越负表示越异常
         """
-        # 处理空数组
-        if len(predictions) == 0:
-            return predictions.copy()
+        if self._di_model is None:
+            raise ValueError("DI 模型尚未训练。请先调用 _fit_di_model()。")
 
-        # 计算统计量
-        mean = predictions.mean()
-        std = predictions.std()
-
-        # 处理零标准差情况
-        if std == 0:
-            return np.zeros_like(predictions)
-
-        # 计算 DI 值为 z-score
-        di_values = (predictions - mean) / std
+        # 使用 IsolationForest 的 decision_function 获取异常分数
+        # 分数越负表示越异常（normal=0, outlier<0）
+        di_values = self._di_model.decision_function(features)
         return di_values
 
     def _compute_dynamic_thresholds(
         self,
         pred_df_full: pl.DataFrame,
-    ) -> tuple[float, float]:
-        """从预测数据计算动态阈值。
+    ) -> tuple[float, float, float, tuple, float, float]:
+        """从预测数据计算动态阈值和 DI cutoff。
 
-        使用排序后的预测值，根据顶部和底部频率加权预测计算阈值。
+        使用排序后的预测值，根据顶部和底部 frequency 计算阈值。
+        使用 Weibull 分布拟合 DI 值计算 cutoff。
 
         参数
         ----------
         pred_df_full : pl.DataFrame
-            包含 PREDICTION_COL 列的预测 DataFrame
+            包含 PREDICTION_COL 和 DI_values 列的预测 DataFrame
 
         返回
         -------
-        tuple[float, float]
-            (maxima_threshold, minima_threshold) 元组
+        tuple[float, float, float, tuple, float, float]
+            (maxima_threshold, minima_threshold, di_cutoff, di_params, di_mean, di_std) 元组
         """
         if len(pred_df_full) == 0:
-            return DEFAULT_MAXIMA_THRESHOLD, DEFAULT_MINIMA_THRESHOLD
+            return (
+                DEFAULT_MAXIMA_THRESHOLD,
+                DEFAULT_MINIMA_THRESHOLD,
+                DEFAULT_DI_CUTOFF,
+                (0.0, 0.0, 0.0),
+                0.0,
+                0.0,
+            )
 
         # 按值降序排序预测
         predictions = pred_df_full.sort(self.PREDICTION_COL, descending=True)
 
-        # 基于 num_candles 和 label_period_candles 计算频率
+        # 基于 frequency 计算阈值
         frequency = max(1, int(self.num_candles / (self.label_period_candles * 2)))
         frequency = min(frequency, len(predictions))
 
@@ -193,140 +196,28 @@ class XGBoostExtremaModel(AlphaModel):
         if min_pred is None or np.isnan(min_pred):
             min_pred = DEFAULT_MINIMA_THRESHOLD
 
-        return float(max_pred), float(min_pred)
+        # 计算 DI cutoff（使用 Weibull 分布）
+        di_values = pred_df_full["DI_values"].to_numpy().astype(float)
+        di_mean = float(np.mean(di_values))
+        di_std = float(np.std(di_values))
 
-    def _get_historic_predictions_df(self, symbol: str | None = None) -> pl.DataFrame:
-        """使用窗口限制合并所有符号的历史预测。
-
-        使用 tail(num_candles) 限制为最近的预测（freqtrade 兼容）。
-
-        参数
-        ----------
-        symbol : str | None
-            可选的符号过滤器。如果为 None，则合并所有符号。
-
-        返回
-        -------
-        pl.DataFrame
-            包含历史预测的 DataFrame，限制为 num_candles，
-            在 PREDICTION_COL 列中
-        """
-        if not self._historic_predictions:
-            return pl.DataFrame().with_columns(
-                pl.Series(self.PREDICTION_COL, [])
-            )
-
-        if symbol is not None:
-            if symbol not in self._historic_predictions:
-                return pl.DataFrame().with_columns(
-                    pl.Series(self.PREDICTION_COL, [])
-                )
-            pred_df = self._historic_predictions[symbol]
-        else:
-            pred_df = pl.concat(list(self._historic_predictions.values()))
-
-        # 应用 tail(num_candles) 窗口限制（freqtrade 兼容）
-        if len(pred_df) > self.num_candles:
-            pred_df = pred_df.tail(self.num_candles)
-
-        return pred_df
-
-    def _compute_progressive_thresholds(
-        self,
-        pred_df_full: pl.DataFrame,
-        warmup_progress: float,
-    ) -> tuple[float, float]:
-        """使用预热计算渐进式阈值。
-
-        在预热期间，基于预热进度将默认阈值与动态阈值混合。
-
-        参数
-        ----------
-        pred_df_full : pl.DataFrame
-            包含历史预测的 DataFrame
-        warmup_progress : float
-            预热进度（0.0 到 1.0）
-
-        返回
-        -------
-        tuple[float, float]
-            (maxima_threshold, minima_threshold) 元组
-        """
-        if self._prediction_count < self.MIN_CANDLES_FOR_DYNAMIC:
-            return self.DEFAULT_MAXIMA_THRESHOLD, self.DEFAULT_MINIMA_THRESHOLD
-
-        dynamic_maxima, dynamic_minima = self._compute_dynamic_thresholds(pred_df_full)
-
-        maxima_threshold = (
-            self.DEFAULT_MAXIMA_THRESHOLD * (1 - warmup_progress)
-            + dynamic_maxima * warmup_progress
-        )
-        minima_threshold = (
-            self.DEFAULT_MINIMA_THRESHOLD * (1 - warmup_progress)
-            + dynamic_minima * warmup_progress
-        )
-
-        return maxima_threshold, minima_threshold
-
-    def _compute_progressive_di_cutoff(
-        self,
-        pred_df_full: pl.DataFrame,
-        warmup_progress: float,
-    ) -> tuple[float, tuple[float, float, float]]:
-        """使用 Weibull 分布计算渐进式 DI 截止值。
-
-        在预热期间，基于历史 DI 值的 Weibull 分布拟合，
-        将默认 DI 截止值与动态截止值混合。
-
-        参数
-        ----------
-        pred_df_full : pl.DataFrame
-            包含历史 DI_values 列的 DataFrame
-        warmup_progress : float
-            预热进度（0.0 到 1.0）
-
-        返回
-        -------
-        tuple[float, tuple[float, float, float]]
-            (cutoff, (shape, loc, scale)) 元组：
-            - cutoff：计算得到的 DI 截止值
-            - shape, loc, scale：Weibull 分布参数
-        """
-        if self._prediction_count < self.MIN_CANDLES_FOR_DYNAMIC:
-            return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
-
-        # 从历史预测中提取 DI 值（freqtrade 风格）
-        if "DI_values" not in pred_df_full.columns or len(pred_df_full) < 10:
-            return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
-
-        di_values = pred_df_full["DI_values"].to_numpy()
-        di_values = di_values[~np.isnan(di_values)]  # 丢弃 NaN 值
-
-        if len(di_values) < 10:
-            return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
-
+        # 使用 Weibull 分布拟合 DI 值
         try:
-            # 拟合 Weibull 分布到历史 DI 值
-            f = scipy.stats.weibull_min.fit(di_values)
-            dynamic_cutoff = scipy.stats.weibull_min.ppf(0.999, *f)
+            di_params = scipy.stats.weibull_min.fit(di_values)
+            di_cutoff = float(scipy.stats.weibull_min.ppf(0.999, *di_params))
+        except Exception:
+            # 拟合失败时使用默认值
+            di_params = (0.0, 0.0, 0.0)
+            di_cutoff = DEFAULT_DI_CUTOFF
 
-            # 基于预热进度混合默认和动态截止值
-            cutoff = (
-                self.DEFAULT_DI_CUTOFF * (1 - warmup_progress)
-                + dynamic_cutoff * warmup_progress
-            )
-
-            # 渐进式混合 Weibull 参数
-            params = tuple(
-                0.0 * (1 - warmup_progress) + f[i] * warmup_progress
-                for i in range(3)
-            )
-
-            return cutoff, params
-        except Exception as e:
-            logger = logging.getLogger(__name__)
-            logger.warning(f"计算 DI 截止值失败：{e}")
-            return self.DEFAULT_DI_CUTOFF, (0.0, 0.0, 0.0)
+        return (
+            float(max_pred),
+            float(min_pred),
+            di_cutoff,
+            di_params,
+            di_mean,
+            di_std,
+        )
 
     def fit(self, dataset: AlphaDataset) -> None:
         """
@@ -342,6 +233,74 @@ class XGBoostExtremaModel(AlphaModel):
         None
         """
         X_train, y_train, X_valid, y_valid = self._prepare_data(dataset)
+
+        # 存储标签统计信息用于参考
+        self._label_min = float(np.nanmin(y_train))
+        self._label_max = float(np.nanmax(y_train))
+        self._label_mean = float(np.nanmean(y_train))
+        self._label_std = float(np.nanstd(y_train))
+
+        # 从原始数据获取原始特征用于 DI 训练（避免在缩放后的特征上计算 DI）
+        # 注意：_prepare_data 返回的 X_train 可能已经被缩放处理器处理过
+        # 我们需要从原始数据集 dataset.df 重新提取原始特征
+        # 处理 FilteredDataset 情况（GroupedMultiModel 使用）
+        original_dataset = getattr(dataset, '_original_dataset', None)
+        source_dataset = original_dataset if original_dataset else dataset
+
+        # 检查原始数据集是否有 df 属性（AlphaDataset 有，FilteredDataset 没有）
+        source_df = getattr(source_dataset, 'df', None)
+        data_periods = getattr(source_dataset, 'data_periods', None)
+
+        if source_df is not None:
+            self._di_feature_cols = [col for col in source_df.columns if col.startswith("%-")]
+            if self._di_feature_cols and data_periods is not None:
+                # 获取训练期的原始数据
+                train_period = data_periods.get(Segment.TRAIN)
+                if train_period:
+                    raw_train_df = source_df.filter(
+                        (pl.col("datetime") >= pl.lit(train_period[0])) &
+                        (pl.col("datetime") <= pl.lit(train_period[1]))
+                    ).sort(["datetime", "vt_symbol"])
+
+                    if len(raw_train_df) > 0:
+                        # 获取处理后数据的 datetime/vt_symbol 用于匹配
+                        processed_train_df = dataset.fetch_learn(Segment.TRAIN).sort(["datetime", "vt_symbol"])
+
+                        # 通过 join 确保行匹配
+                        matched_df = processed_train_df.select(["datetime", "vt_symbol"]).join(
+                            raw_train_df.select(["datetime", "vt_symbol"] + self._di_feature_cols),
+                            on=["datetime", "vt_symbol"],
+                            how="left"
+                        )
+                        X_train_raw = matched_df.select(self._di_feature_cols).to_numpy()
+                        X_train_raw = np.nan_to_num(X_train_raw, nan=0.0, posinf=1e10, neginf=-1e10)
+                        logger = logging.getLogger(__name__)
+                        logger.info(f"DI 模型使用原始特征训练，匹配行数：{len(matched_df)}, 特征范围：[{np.min(X_train_raw):.2f}, {np.max(X_train_raw):.2f}]")
+                    else:
+                        X_train_raw = X_train
+                        self._di_feature_cols = []
+                else:
+                    X_train_raw = X_train
+            else:
+                X_train_raw = X_train
+        else:
+            # 无法访问原始数据，回退到使用缩放后的特征
+            X_train_raw = X_train
+            self._di_feature_cols = []
+
+        logger = logging.getLogger(__name__)
+        logger.info(f"原始标签范围：[{self._label_min:.6f}, {self._label_max:.6f}], 均值：{self._label_mean:.6f}")
+        logger.info(f"scale_label={self.scale_label}, 准备创建 _label_scaler")
+
+        # 如果设置了 scale_label，对标签进行缩放
+        if self.scale_label:
+            self._label_scaler = MinMaxScaler(feature_range=(-1, 1))
+            y_train = self._label_scaler.fit_transform(y_train.reshape(-1, 1)).ravel()
+            y_valid = self._label_scaler.transform(y_valid.reshape(-1, 1)).ravel()
+            logger.info(f"缩放后标签范围：[{np.min(y_train):.6f}, {np.max(y_train):.6f}]")
+            logger.info(f"_label_scaler 已创建：data_min_={self._label_scaler.data_min_}, data_max_={self._label_scaler.data_max_}")
+        else:
+            logger.info(f"scale_label=False，跳过标签缩放")
 
         self.model = XGBRegressor(
             objective="reg:squarederror",
@@ -359,6 +318,17 @@ class XGBoostExtremaModel(AlphaModel):
             eval_set=[(X_train, y_train), (X_valid, y_valid)],
             verbose=False,
         )
+
+        # 训练 DI 模型（使用原始特征，而非缩放后的特征）
+        if hasattr(self, '_di_feature_cols') and len(self._di_feature_cols) > 0:
+            self._fit_di_model(X_train_raw)
+            logger = logging.getLogger(__name__)
+            logger.info(f"DI 模型已在原始特征上训练，共 {len(self._di_feature_cols)} 个特征")
+        else:
+            # 回退到使用缩放后的特征（不推荐，但保持兼容性）
+            self._fit_di_model(X_train)
+            logger = logging.getLogger(__name__)
+            logger.warning("DI 模型在缩放后的特征上训练，DI 值可能不准确")
 
         logger = logging.getLogger(__name__)
         logger.info(f"模型训练完成，最佳迭代轮数：{self.model.best_iteration + 1}")
@@ -396,18 +366,78 @@ class XGBoostExtremaModel(AlphaModel):
 
         predictions = self.model.predict(data)
 
-        # 记录初始交易所 K 线计数（freqtrade 兼容）
-        if self._exchange_candles is None:
-            self._exchange_candles = self._prediction_count
+        # 日志：预测值范围
+        logger = logging.getLogger(__name__)
+        logger.info(f"模型预测值（缩放空间）范围：[{np.min(predictions):.6f}, {np.max(predictions):.6f}], 均值：{np.mean(predictions):.6f}")
+        logger.info(f"scale_label={self.scale_label}, _label_scaler is not None={self._label_scaler is not None}, hasattr={hasattr(self, '_label_scaler')}")
+        if hasattr(self, '_label_scaler') and self._label_scaler is not None:
+            logger.info(f"_label_scaler: data_min_={self._label_scaler.data_min_}, data_max_={self._label_scaler.data_max_}")
+        else:
+            logger.warning(f"_label_scaler 不存在或为空！")
+
+        # 如果标签被缩放了，进行 inverse_transform 转换回原始范围
+        if self.scale_label and self._label_scaler is not None:
+            try:
+                predictions = self._label_scaler.inverse_transform(predictions.reshape(-1, 1)).ravel()
+                logger.info(f"已执行 inverse_transform，预测值已转换回原始范围")
+                logger.info(f"逆转换后预测值范围：[{np.min(predictions):.6f}, {np.max(predictions):.6f}], 均值：{np.mean(predictions):.6f}")
+            except Exception as e:
+                logger.warning(f"inverse_transform 失败：{e}，使用原始预测值")
+
+        # 使用原始特征计算 DI 值（而非缩放后的特征）
+        # 从原始数据集获取原始数据，并通过 join 确保行匹配
+        # 处理 FilteredDataset 情况（GroupedMultiModel 使用）
+        original_dataset = getattr(dataset, '_original_dataset', None)
+        source_dataset = original_dataset if original_dataset else dataset
+        source_df = getattr(source_dataset, 'df', None)
+        data_periods = getattr(source_dataset, 'data_periods', None)
+
+        try:
+            if hasattr(self, '_di_feature_cols') and len(self._di_feature_cols) > 0 and source_df is not None and data_periods is not None:
+                # 获取当前 segment 的原始数据
+                period = data_periods.get(segment)
+                if period:
+                    start_dt = pl.lit(period[0])
+                    end_dt = pl.lit(period[1])
+                    raw_df = source_df.filter(
+                        (pl.col("datetime") >= start_dt) & (pl.col("datetime") <= end_dt)
+                    ).sort(["datetime", "vt_symbol"])
+
+                    # 检查原始数据中的特征列
+                    available_cols = [col for col in self._di_feature_cols if col in raw_df.columns]
+                    if len(available_cols) > 0:
+                        # 通过 join 确保行与处理后的 df 匹配
+                        # df 已经排序，包含 datetime 和 vt_symbol
+                        raw_matched = df.select(["datetime", "vt_symbol"]).join(
+                            raw_df.select(["datetime", "vt_symbol"] + available_cols),
+                            on=["datetime", "vt_symbol"],
+                            how="left"
+                        )
+                        di_data = raw_matched.select(available_cols).to_numpy()
+                        di_data = np.nan_to_num(di_data, nan=0.0, posinf=1e10, neginf=-1e10)
+                        di_values = self._compute_di_values(di_data)
+                        logger.info(f"使用原始特征计算 DI_values（{len(available_cols)} 个特征），"
+                                   f"匹配行数：{len(raw_matched)}, DI 范围：[{np.min(di_values):.6f}, {np.max(di_values):.6f}]")
+                    else:
+                        logger.warning(f"原始数据中找不到 DI 特征列，回退到使用当前数据")
+                        di_values = self._compute_di_values(data)
+                else:
+                    di_values = self._compute_di_values(data)
+            else:
+                # 没有存储特征列信息或无法访问原始数据，使用当前数据（缩放后的）
+                di_values = self._compute_di_values(data)
+                if source_df is None:
+                    logger.warning(f"无法访问原始数据集 df，DI 在缩放后的特征上计算")
+        except Exception as e:
             logger = logging.getLogger(__name__)
-            logger.info(f"已记录初始交易所 K 线数：{self._exchange_candles}")
+            logger.warning(f"使用原始特征计算 DI 失败：{e}，回退到缩放特征")
+            di_values = self._compute_di_values(data)
 
-        self._prediction_count += len(predictions)
+        logger = logging.getLogger(__name__)
+        logger.info(f"使用 IsolationForest 计算 DI_values，共 {len(di_values)} 个")
+        logger.info(f"DI_values 范围：[{np.min(di_values):.6f}, {np.max(di_values):.6f}], 均值：{np.mean(di_values):.6f}")
 
-        # 计算当前批次的 DI 值
-        di_values = self._compute_di_values(predictions)
-
-        # 构建包含预测值和 DI 值的初始 result_df
+        # 构建包含预测值和 DI 值的 result_df
         result_df = pl.DataFrame().with_columns(
             df["vt_symbol"].alias("vt_symbol"),
             df["datetime"].alias("datetime"),
@@ -415,54 +445,41 @@ class XGBoostExtremaModel(AlphaModel):
             pl.Series(di_values).alias("DI_values"),
         )
 
-        # 在计算阈值之前，按符号存储预测值用于历史跟踪
-        symbols = df["vt_symbol"].to_numpy()
-        unique_symbols = np.unique(symbols)
+        # 如果设置了 feature_pipeline，将特征转换回原始范围
+        if self.feature_pipeline is not None:
+            try:
+                logger.info(f"feature_pipeline 存在，检查逆转换条件...")
+                logger.info(f"feature_pipeline 类型: {type(self.feature_pipeline)}")
+                logger.info(f"feature_pipeline.feature_cols: {len(self.feature_pipeline.feature_cols) if self.feature_pipeline.feature_cols else 0}")
+                logger.info(f"_data_min 是否存在: {hasattr(self.feature_pipeline, '_data_min')}")
+                # 获取特征列（%-前缀的列）
+                feature_cols_in_df = [col for col in df.columns if col.startswith("%-")]
+                logger.info(f"df 中的特征列数量: {len(feature_cols_in_df)}")
+                if feature_cols_in_df:
+                    # 选择特征列
+                    features_df = df.select(["datetime", "vt_symbol"] + feature_cols_in_df)
+                    # 打印逆转换前的特征范围
+                    for col in feature_cols_in_df[:3]:
+                        logger.info(f"逆转换前 {col} 范围: [{df[col].min():.6f}, {df[col].max():.6f}]")
+                    # 逆转换特征
+                    features_original_df = self.feature_pipeline.inverse_transform_features(features_df)
+                    # 打印逆转换后的特征范围
+                    for col in feature_cols_in_df[:3]:
+                        logger.info(f"逆转换后 {col} 范围: [{features_original_df[col].min():.6f}, {features_original_df[col].max():.6f}]")
+                    # 合并到 result_df
+                    result_df = result_df.join(
+                        features_original_df.select(["datetime", "vt_symbol"] + feature_cols_in_df),
+                        on=["datetime", "vt_symbol"],
+                        how="left"
+                    )
+                    logger.info(f"特征已转换回原始范围，共 {len(feature_cols_in_df)} 个特征")
+            except Exception as e:
+                logger.warning(f"特征 inverse_transform 失败：{e}")
+                import traceback
+                logger.warning(traceback.format_exc())
 
-        for symbol in unique_symbols:
-            symbol_df = result_df.filter(pl.col("vt_symbol") == symbol)
-            if symbol not in self._historic_predictions:
-                self._historic_predictions[symbol] = symbol_df
-            else:
-                self._historic_predictions[symbol] = pl.concat(
-                    [self._historic_predictions[symbol], symbol_df]
-                )
-
-        # 获取带有窗口限制的历史预测（freqtrade 兼容）
-        pred_df_full = self._get_historic_predictions_df()
-
-        # 计算预热进度（freqtrade 风格）
-        new_predictions = self._prediction_count - self._exchange_candles
-        warmup_progress = min(1.0, max(0.0, new_predictions / self.num_candles))
-
-        # 记录预热进度
-        if warmup_progress < 1.0:
-            progress_pct = int(warmup_progress * 100)
-            candles_needed = self.num_candles - new_predictions
-            logger = logging.getLogger(__name__)
-            logger.info(
-                f"阈值预热进度：{progress_pct}% "
-                f"({new_predictions}/{self.num_candles} 根新 K 线，还需要 {candles_needed} 根)"
-            )
-        else:
-            logger = logging.getLogger(__name__)
-            logger.info(f"阈值预热完成，共 {new_predictions} 根新 K 线")
-
-        # 使用存储的历史预测计算阈值（freqtrade 兼容）
-        maxima_threshold, minima_threshold = self._compute_progressive_thresholds(
-            pred_df_full, warmup_progress
-        )
-        di_cutoff, di_params = self._compute_progressive_di_cutoff(
-            pred_df_full, warmup_progress
-        )
-
-        # 计算 DI 统计值用于存储（freqtrade 兼容）
-        di_mean = pred_df_full["DI_values"].mean() if len(pred_df_full) > 0 else 0.0
-        di_std = pred_df_full["DI_values"].std() if len(pred_df_full) > 0 else 0.0
-        if di_std is None or np.isnan(di_std):
-            di_std = 0.0
-        if di_mean is None or np.isnan(di_mean):
-            di_mean = 0.0
+        # 从当前预测数据计算动态阈值（包含 DI cutoff）
+        maxima_threshold, minima_threshold, di_cutoff, di_params, di_mean, di_std = self._compute_dynamic_thresholds(result_df)
 
         # 添加阈值列到 result_df
         result_df = result_df.with_columns(
@@ -474,7 +491,7 @@ class XGBoostExtremaModel(AlphaModel):
             pl.Series([di_params[2]] * len(predictions)).alias("DI_value_param3"),
             pl.Series([di_mean] * len(predictions)).alias("DI_value_mean"),
             pl.Series([di_std] * len(predictions)).alias("DI_value_std"),
-            # 标签统计初始化为 0（freqtrade 兼容）
+            # 标签统计初始化为 0（与 freqtrade 兼容）
             pl.Series([0.0] * len(predictions)).alias("labels_mean"),
             pl.Series([0.0] * len(predictions)).alias("labels_std"),
         )
@@ -483,8 +500,9 @@ class XGBoostExtremaModel(AlphaModel):
 
         logger = logging.getLogger(__name__)
         logger.info(
-            f"预测 {len(predictions)} 个样本，预热：{int(warmup_progress * 100)}%, "
-            f"阈值：({maxima_threshold:.2f}, {minima_threshold:.2f})"
+            f"预测 {len(predictions)} 个样本，"
+            f"阈值：({maxima_threshold:.2f}, {minima_threshold:.2f}), "
+            f"DI cutoff: {di_cutoff:.2f}, DI params: {di_params}"
         )
 
         return predictions
@@ -575,29 +593,3 @@ class XGBoostExtremaModel(AlphaModel):
         logging.info("特征重要性（gain）：")
         for feat, score in sorted(importance.items(), key=lambda x: x[1], reverse=True)[:20]:
             logging.info(f"  {feat}: {score:.4f}")
-
-    def get_thresholds(self, dataset: AlphaDataset) -> tuple[float, float]:
-        """从训练数据计算极大值和极小值阈值。
-
-        参数
-        ----------
-        dataset : AlphaDataset
-            包含带有标签列的训练数据的数据集
-
-        返回
-        -------
-        tuple[float, float]
-            (maxima_threshold, minima_threshold) 元组
-            - maxima_threshold: &s-extrema 的 90% 分位数（卖出信号阈值）
-            - minima_threshold: &s-extrema 的 10% 分位数（买入信号阈值）
-        """
-        train_df = dataset.fetch_learn(Segment.TRAIN)
-        label_cols = [col for col in train_df.columns if col.startswith("&")]
-        if not label_cols:
-            raise ValueError("未找到标签列（缺少 '&' 前缀的列）")
-
-        label_col = label_cols[0]
-        maxima_threshold = train_df[label_col].quantile(0.9).item()
-        minima_threshold = train_df[label_col].quantile(0.1).item()
-
-        return maxima_threshold, minima_threshold

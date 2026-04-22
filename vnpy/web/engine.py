@@ -15,10 +15,11 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 import asyncio
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Dict, List, Set, Any, Optional
 from vnpy.event import EventEngine, Event
 from vnpy.trader.engine import BaseEngine, MainEngine
+from vnpy.trader.constant import Exchange, Interval
 from vnpy.trader.object import (
     TickData, TradeData, OrderData, PositionData, AccountData
 )
@@ -111,9 +112,13 @@ class WebEngine(BaseEngine):
         # 初始化数据
         self.stock_pool_data = self._generate_sample_stock_pool()
         self.available_symbols = self._load_available_symbols()
+
+        # 从数据库加载历史K线数据
+        for symbol in self.available_symbols:
+            self.all_candles[symbol] = self._load_historical_candles(symbol, days=60)
+
         if self.available_symbols:
             self.current_symbol = self.available_symbols[0]
-            self.all_candles[self.current_symbol] = self._generate_sample_candles(self.current_symbol, num=200)
         self.stats = self._generate_sample_stats()
 
     def _create_app(self) -> FastAPI:
@@ -657,6 +662,46 @@ class WebEngine(BaseEngine):
         """获取统计数据"""
         return self.stats
 
+    def _load_historical_candles(self, vt_symbol: str, days: int = 60) -> List[CandleData]:
+        """从数据库加载历史K线数据"""
+        try:
+            from vnpy.trader.database import get_database
+
+            database = get_database()
+            symbol, exchange_str = vt_symbol.split('.')
+
+            # 计算时间范围
+            end = datetime.now()
+            start = end - timedelta(days=days)
+
+            # 从数据库查询
+            bars = database.load_bar_data(
+                symbol=symbol,
+                exchange=Exchange(exchange_str),
+                interval=Interval.DAILY,
+                start=start,
+                end=end
+            )
+
+            # 转换为 CandleData
+            candles = []
+            for bar in bars:
+                candles.append(CandleData(
+                    timestamp=bar.datetime.strftime("%Y-%m-%d"),
+                    open=bar.open_price,
+                    high=bar.high_price,
+                    low=bar.low_price,
+                    close=bar.close_price,
+                    volume=bar.volume
+                ))
+
+            print(f"加载 {vt_symbol} 历史数据: {len(candles)} 条")
+            return candles
+        except Exception as e:
+            print(f"加载历史数据失败 {vt_symbol}: {e}")
+            # 失败时返回示例数据
+            return self._generate_sample_candles(vt_symbol, num=100)
+
     def _generate_sample_candles(self, vt_symbol: str, num: int = 100) -> List[CandleData]:
         """生成示例K线数据（用于测试）"""
         import random
@@ -734,9 +779,9 @@ class WebEngine(BaseEngine):
         """设置当前选中的股票"""
         if vt_symbol in self.available_symbols:
             self.current_symbol = vt_symbol
-            # 如果该股票没有 K 线数据，生成示例数据
+            # 如果该股票没有 K 线数据，从数据库加载
             if vt_symbol not in self.all_candles:
-                self.all_candles[vt_symbol] = self._generate_sample_candles(vt_symbol, num=200)
+                self.all_candles[vt_symbol] = self._load_historical_candles(vt_symbol, days=60)
             return True
         return False
 

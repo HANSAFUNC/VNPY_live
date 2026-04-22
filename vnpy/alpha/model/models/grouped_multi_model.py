@@ -137,6 +137,7 @@ class GroupedMultiModel(AlphaModel):
         group_by: str | list[str] = "vt_symbol",
         max_groups: int | None = None,
         min_samples_per_group: int = 100,
+        train_global_model: bool = False,
     ) -> None:
         """初始化 GroupedMultiModel。
 
@@ -155,11 +156,17 @@ class GroupedMultiModel(AlphaModel):
             训练分组模型所需的最小样本数。
             样本少于该值的分组将被跳过。
             默认是 100。
+        train_global_model : bool, optional
+            是否训练全局模型。
+            如果为 True，则先训练一个全局模型用于合成完整数据集的预测结果。
+            如果为 False（默认），则只训练分组模型。
+            默认是 False。
         """
         self.model_factory = model_factory
         self.group_by = [group_by] if isinstance(group_by, str) else list(group_by)
         self.max_groups = max_groups
         self.min_samples_per_group = min_samples_per_group
+        self.train_global_model = train_global_model
 
         # 模型存储
         self.models_: dict[str, AlphaModel] = {}
@@ -234,22 +241,42 @@ class GroupedMultiModel(AlphaModel):
         dataset : AlphaDataset
             包含特征和标签的数据集
         """
+        print("=" * 60)
+        print("开始执行 GroupedMultiModel.fit()")
+        print("=" * 60)
+
         # 1. 获取训练和验证数据
+        print("\n[步骤 1] 获取训练和验证数据...")
         df_train = dataset.fetch_learn(Segment.TRAIN).sort(["datetime", "vt_symbol"])
         df_valid = dataset.fetch_learn(Segment.VALID).sort(["datetime", "vt_symbol"])
+        print(f"  训练数据：{len(df_train)} 行")
+        print(f"  验证数据：{len(df_valid)} 行")
 
-        # 2. 首先训练全局模型（用于完整数据集合成）
-        self.global_model_ = self.model_factory()
-        self.global_model_.fit(dataset)
+        # 2. 可选：训练全局模型（用于完整数据集合成）
+        print(f"\n[步骤 2] 训练全局模型 (train_global_model={self.train_global_model})...")
+        if self.train_global_model:
+            print("  正在创建并训练全局模型...")
+            self.global_model_ = self.model_factory()
+            self.global_model_.fit(dataset)
+            print("  ✓ 全局模型训练完成")
+        else:
+            print("  跳过全局模型训练")
 
         # 3. 获取唯一分组
+        print("\n[步骤 3] 获取唯一分组...")
         groups_df = df_train.select(self.group_by).unique()
-        groups = groups_df.iter_rows(named=False)
+        groups = list(groups_df.iter_rows(named=False))
+        print(f"  共找到 {len(groups)} 个分组")
 
         # 4. 为每个分组训练模型
+        print("\n[步骤 4] 为每个分组训练模型...")
+        trained_count = 0
+        skipped_count = 0
+
         for i, row in enumerate(groups):
             # 检查最大分组数限制
             if self.max_groups is not None and i >= self.max_groups:
+                print(f"  已达到最大分组数限制 ({self.max_groups})，停止训练")
                 break
 
             # 为该分组构建过滤表达式
@@ -262,6 +289,8 @@ class GroupedMultiModel(AlphaModel):
 
             # 检查是否有足够的样本
             if len(group_train) < self.min_samples_per_group:
+                print(f"  [跳过] {row}: 样本数 {len(group_train)} < {self.min_samples_per_group}")
+                skipped_count += 1
                 continue
 
             # 为该分组创建过滤数据集
@@ -271,6 +300,9 @@ class GroupedMultiModel(AlphaModel):
                 original_dataset=dataset
             )
 
+            # 打印训练进度
+            print(f"  [训练] {i+1}/{len(groups)}: {row} (样本数：{len(group_train)})")
+
             # 训练该分组的模型
             model = self.model_factory()
             model.fit(group_dataset)
@@ -278,6 +310,16 @@ class GroupedMultiModel(AlphaModel):
             # 使用分组键存储模型
             group_key = self._make_group_key(row)
             self.models_[group_key] = model
+
+            print(f"  [OK] {row} 训练完成")
+            trained_count += 1
+
+        print("\n" + "=" * 60)
+        print("训练完成!")
+        print(f"  训练模型数：{trained_count}")
+        print(f"  跳过模型数：{skipped_count}")
+        print(f"  全局模型：{'有' if self.global_model_ else '无'}")
+        print("=" * 60)
 
     def predict(self, dataset: AlphaDataset, segment: Segment) -> np.ndarray:
         """使用分组模型进行预测。
@@ -345,7 +387,7 @@ class GroupedMultiModel(AlphaModel):
         # 4. 创建预测 DataFrame
         preds_df = pl.DataFrame(
             predictions,
-            schema=["datetime", "vt_symbol", "prediction"],
+            schema={"datetime": pl.Datetime, "vt_symbol": pl.Utf8, "prediction": pl.Float64},
             orient="row"
         )
 
@@ -412,43 +454,6 @@ class GroupedMultiModel(AlphaModel):
         """
         return list(self.models_.keys())
 
-    def get_thresholds(self, dataset: AlphaDataset) -> tuple[float, float]:
-        """从模型获取极大值和极小值阈值。
-
-        如果可用则委托给全局模型，否则使用第一个分组模型。
-
-        参数
-        ----------
-        dataset : AlphaDataset
-            包含训练数据的数据集
-
-        返回
-        -------
-        tuple[float, float]
-            (maxima_threshold, minima_threshold) 元组
-        """
-        # 首先尝试全局模型
-        if self.global_model_ is not None:
-            if hasattr(self.global_model_, "get_thresholds"):
-                return self.global_model_.get_thresholds(dataset)
-
-        # 回退到第一个分组模型
-        if self.models_:
-            first_group_key = list(self.models_.keys())[0]
-            first_model = self.models_[first_group_key]
-            if hasattr(first_model, "get_thresholds"):
-                return first_model.get_thresholds(dataset)
-
-        # 默认回退：直接从数据集计算
-        train_df = dataset.fetch_learn(Segment.TRAIN)
-        label_cols = [col for col in train_df.columns if col.startswith("&")]
-        if label_cols:
-            label_col = label_cols[0]
-            maxima_threshold = train_df[label_col].quantile(0.9).item()
-            minima_threshold = train_df[label_col].quantile(0.1).item()
-            return maxima_threshold, minima_threshold
-
-        raise ValueError("无法计算阈值：未找到标签列")
 
     def detail(self) -> dict:
         """输出模型的详细信息。
