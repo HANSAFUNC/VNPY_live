@@ -80,24 +80,27 @@ class DataManager:
 
         print(f"[DataManager] 收到事件: {event_type}, 数据: {type(data).__name__}")
 
-        if event_type == "eAccount":
+        # 事件类型以 '.' 结尾，需要处理
+        event_type_clean = event_type.rstrip('.')
+
+        if event_type_clean == "eAccount":
             self.account = self._format_account(data)
             await self._broadcast({"type": "account", "data": self.account})
-        elif event_type == "ePosition":
+        elif event_type_clean == "ePosition":
             position = self._format_position(data)
             self.positions[position["vt_symbol"]] = position
             await self._broadcast({"type": "position", "data": position})
-        elif event_type == "eTrade":
+        elif event_type_clean == "eTrade":
             trade = self._format_trade(data)
             self.trades.insert(0, trade)
             if len(self.trades) > 100:
                 self.trades = self.trades[:100]
             await self._broadcast({"type": "trade", "data": trade})
-        elif event_type == "eOrder":
+        elif event_type_clean == "eOrder":
             order = self._format_order(data)
             self.orders[order["vt_orderid"]] = order
             await self._broadcast({"type": "order", "data": order})
-        elif event_type == "eTick":
+        elif event_type_clean == "eTick":
             tick = self._format_tick(data)
             self.ticks[tick["vt_symbol"]] = tick
             await self._broadcast({"type": "tick", "data": tick})
