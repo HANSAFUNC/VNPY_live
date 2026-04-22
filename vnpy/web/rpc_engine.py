@@ -106,6 +106,7 @@ class RpcWebEngine(WebEngine):
         """
         try:
             from vnpy.rpc import RpcClient
+            from time import sleep
 
             self.rpc_client = RpcClient()
             self.rpc_client.subscribe_topic("")
@@ -117,18 +118,27 @@ class RpcWebEngine(WebEngine):
             # 设置事件回调
             self.rpc_client.callback = self._on_rpc_event
 
+            # 等待连接建立
+            sleep(0.5)
+
             self._connected = True
             print(f"✓ RPC连接成功: {self.req_address}")
 
             # RPC连接成功后加载历史数据
             print("正在通过RPC加载历史数据...")
+            loaded_count = 0
             for symbol in self.available_symbols:
-                self.all_candles[symbol] = self._load_historical_candles(symbol, days=60)
-            print(f"历史数据加载完成: {len(self.available_symbols)} 个合约")
+                candles = self._load_historical_candles(symbol, days=60)
+                if candles:
+                    self.all_candles[symbol] = candles
+                    loaded_count += 1
+            print(f"历史数据加载完成: {loaded_count}/{len(self.available_symbols)} 个合约")
 
             return True
         except Exception as e:
             print(f"✗ RPC连接失败: {e}")
+            self._connected = False
+            return False
             return False
 
     def _on_rpc_event(self, topic: str, event: Event) -> None:
@@ -305,8 +315,7 @@ class RpcWebEngine(WebEngine):
         list
             K线数据列表
         """
-        if not self._connected:
-            # 未连接时返回空数据
+        if not self._connected or not self.rpc_client:
             return []
 
         try:
@@ -314,6 +323,7 @@ class RpcWebEngine(WebEngine):
             from vnpy.trader.object import HistoryRequest
             from vnpy.trader.constant import Exchange, Interval
             from .templates import CandleData
+            from time import sleep
 
             symbol, exchange_str = vt_symbol.split('.')
             exchange = Exchange(exchange_str)
@@ -331,11 +341,20 @@ class RpcWebEngine(WebEngine):
                 end=end
             )
 
-            # 通过RPC查询历史数据
-            bars = self.rpc_client.query_history(req, "")
+            # 通过RPC查询历史数据（带重试）
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    bars = self.rpc_client.query_history(req, "")
+                    break
+                except Exception as e:
+                    if "Operation cannot be accomplished in current state" in str(e):
+                        if attempt < max_retries - 1:
+                            sleep(0.2)  # 等待 socket 就绪
+                            continue
+                    raise
 
             if not bars:
-                print(f"RPC查询历史数据为空: {vt_symbol}")
                 return []
 
             # 转换为 CandleData
@@ -350,9 +369,9 @@ class RpcWebEngine(WebEngine):
                     volume=bar.volume
                 ))
 
-            print(f"RPC加载 {vt_symbol} 历史数据: {len(candles)} 条")
             return candles
 
-        except Exception as e:
-            print(f"RPC加载历史数据失败 {vt_symbol}: {e}")
+        except Exception:
+            # 静默失败，返回空列表
+            return []
             return []
