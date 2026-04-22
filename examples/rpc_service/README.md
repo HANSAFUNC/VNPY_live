@@ -71,6 +71,74 @@ python examples/rpc_service/rpc_web_dashboard.py \
 
 浏览器打开 http://localhost:8000
 
+### 方式三：Alpha策略RPC服务端 + Web看板
+
+**1. 启动Alpha策略RPC服务端**
+
+```bash
+python examples/rpc_service/rpc_server_alpha.py
+```
+
+带交易账号参数：
+```bash
+python examples/rpc_service/rpc_server_alpha.py \
+    --rep tcp://*:2014 \
+    --pub tcp://*:2015 \
+    --gateway XT \
+    --account your_account
+```
+
+**2. 启动Web看板（RPC模式）**
+
+```bash
+python web_dashboard_rpc.py
+```
+
+连接远程服务器：
+```bash
+python web_dashboard_rpc.py \
+    --rpc-req tcp://192.168.1.100:2014 \
+    --rpc-sub tcp://192.168.1.100:2015 \
+    --port 8080
+```
+
+**3. 访问Web看板**
+
+浏览器打开 http://localhost:8000
+
+---
+
+## 完整部署示例
+
+### 场景：交易服务器 + Web监控端
+
+```
+┌─────────────────┐         RPC          ┌─────────────────┐
+│  交易服务器      │  ◄────────────────►  │  Web监控端       │
+│  (云端/本地)     │   tcp://:2014/2015  │  (本机/远程)     │
+├─────────────────┤                      ├─────────────────┤
+│ - RPC服务端     │                      │ - Web看板       │
+│ - Alpha策略     │                      │ - 实时监控      │
+│ - 交易网关      │                      │ - 远程查看      │
+└─────────────────┘                      └─────────────────┘
+```
+
+```bash
+# 交易服务器
+python examples/rpc_service/rpc_server_alpha.py \
+    --rep tcp://0.0.0.0:2014 \
+    --pub tcp://0.0.0.0:2015 \
+    --account your_account
+
+# Web监控端
+python web_dashboard_rpc.py \
+    --rpc-req tcp://server_ip:2014 \
+    --rpc-sub tcp://server_ip:2015 \
+    --port 8080
+```
+
+---
+
 ## 端口配置
 
 | 地址 | 说明 | 默认 |
