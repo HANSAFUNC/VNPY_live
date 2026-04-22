@@ -42,7 +42,7 @@ class LiveTrader:
     def __init__(
         self,
         paper_trading: bool = True,
-        enable_rpc: bool = False,
+        enable_rpc: bool = True,
     ):
         """
         初始化
@@ -173,8 +173,8 @@ class LiveTrader:
         logger.info(f"设置交易策略 ({mode_str}模式)")
         logger.info("=" * 60)
 
-        # 创建 TradeEngine 并添加到 MainEngine
-        trade_engine = TradeEngine(
+        # 创建 TradeEngine（不继承BaseEngine，直接添加到engines字典）
+        self.live_engine = TradeEngine(
             main_engine=self.main_engine,
             event_engine=self.event_engine,
             lab=self.lab,
@@ -182,9 +182,8 @@ class LiveTrader:
             paper_trading=self.paper_trading
         )
 
-        # 注册到 MainEngine
-        self.main_engine.add_engine(trade_engine)
-        self.live_engine = trade_engine
+        # 手动注册到 MainEngine 的 engines 字典
+        self.main_engine.engines[self.live_engine.engine_name] = self.live_engine
 
         # 策略参数
         strategy_setting = {
@@ -251,17 +250,17 @@ class LiveTrader:
     def _start_rpc_service(self):
         """启动 RPC 服务"""
         try:
-            from vnpy_rpcservice import RpcEngine
+            # 从本地 vnpy_rpcservice 导入
+            from vnpy_rpcservice.rpc_service.engine import RpcEngine
 
-            # 创建 RpcEngine 并添加到 MainEngine
-            rpc_engine = RpcEngine(
+            # 创建 RpcEngine
+            self.rpc_engine = RpcEngine(
                 main_engine=self.main_engine,
                 event_engine=self.event_engine
             )
 
-            # 注册到 MainEngine
-            self.main_engine.add_engine(rpc_engine)
-            self.rpc_engine = rpc_engine
+            # 手动注册到 MainEngine 的 engines 字典
+            self.main_engine.engines[self.rpc_engine.engine_name] = self.rpc_engine
 
             # 启动 RPC 服务
             self.rpc_engine.start(
@@ -272,9 +271,9 @@ class LiveTrader:
             logger.info("[RPC] 服务启动成功")
             logger.info("  REP 地址: tcp://*:2014")
             logger.info("  PUB 地址: tcp://*:2015")
-        except ImportError:
-            logger.error("[RPC] 未安装 vnpy_rpcservice，跳过 RPC 服务启动")
-            logger.error("  安装命令: pip install vnpy_rpcservice")
+        except ImportError as e:
+            logger.error(f"[RPC] 导入失败: {e}")
+            logger.error("  请检查 vnpy_rpcservice 模块是否存在")
         except Exception as e:
             logger.error(f"[RPC] 启动失败: {e}")
 
@@ -427,7 +426,7 @@ def main():
                        help='运行模式: live=实盘, paper=模拟盘, backtest=回测')
     parser.add_argument('--gateway', default='XT', help='交易网关名称')
     parser.add_argument('--capital', type=float, default=1_000_000, help='初始资金（默认100万）')
-    parser.add_argument('--enable-rpc', action='store_true',
+    parser.add_argument('--enable-rpc', action='store_true',default=True,
                        help='启用 RPC 服务（供 Web Dashboard 连接）')
 
     args = parser.parse_args()
