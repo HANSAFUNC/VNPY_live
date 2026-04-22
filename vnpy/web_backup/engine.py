@@ -1,0 +1,487 @@
+"""VNPY Web 交易看板引擎
+
+提供类似 freqUI 的网页交易界面，支持：
+- 实时数据展示（持仓、盈亏、信号、成交）
+- 策略控制（启停、参数调整）
+- 图表可视化
+
+使用 FastAPI + WebSocket 实现实时通信。
+"""
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
+from contextlib import asynccontextmanager
+from pathlib import Path
+import asyncio
+import json
+from datetime import datetime
+from typing import Dict, Set, Any, Optional
+from vnpy.event import EventEngine, Event
+from vnpy.trader.engine import BaseEngine, MainEngine
+from vnpy.trader.object import (
+    TickData, TradeData, OrderData, PositionData, AccountData
+)
+from vnpy.trader.event import (
+    EVENT_TICK, EVENT_TRADE, EVENT_ORDER, EVENT_POSITION, EVENT_ACCOUNT
+)
+
+from .api import strategy_router, trading_router, account_router
+from .templates import DashboardData, StrategyStatus, PositionView, TradeView
+
+
+class ConnectionManager:
+    """WebSocket 连接管理器"""
+
+    def __init__(self):
+        self.active_connections: Set[WebSocket] = set()
+
+    async def connect(self, websocket: WebSocket):
+        await websocket.accept()
+        self.active_connections.add(websocket)
+
+    def disconnect(self, websocket: WebSocket):
+        self.active_connections.discard(websocket)
+
+    async def broadcast(self, message: dict):
+        """广播消息到所有连接"""
+        disconnected = set()
+        for connection in self.active_connections:
+            try:
+                await connection.send_json(message)
+            except Exception:
+                disconnected.add(connection)
+
+        # 清理断开的连接
+        for conn in disconnected:
+            self.active_connections.discard(conn)
+
+
+class WebEngine(BaseEngine):
+    """Web 交易看板引擎
+
+    可嵌入 MainEngine，提供 HTTP/WebSocket 服务。
+    """
+
+    engine_name: str = "WebEngine"
+
+    def __init__(self, main_engine: MainEngine, event_engine: EventEngine) -> None:
+        """初始化 Web 引擎"""
+        super().__init__(main_engine, event_engine, self.engine_name)
+
+        self.main_engine = main_engine
+        self.event_engine = event_engine
+        self.manager = ConnectionManager()
+
+        # 数据缓存
+        self.ticks: Dict[str, TickData] = {}
+        self.trades: Dict[str, TradeData] = {}
+        self.orders: Dict[str, OrderData] = {}
+        self.positions: Dict[str, PositionData] = {}
+        self.account: Optional[AccountData] = None
+
+        # 运行时状态
+        self._running = False
+        self._server_task = None
+
+        # 创建 FastAPI 应用
+        self.app = self._create_app()
+
+        # 注册事件监听
+        self._register_events()
+
+    def _create_app(self) -> FastAPI:
+        """创建 FastAPI 应用"""
+
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            """应用生命周期管理"""
+            self._running = True
+            # 启动后台任务
+            broadcast_task = asyncio.create_task(self._broadcast_loop())
+            yield
+            # 清理
+            self._running = False
+            broadcast_task.cancel()
+
+        app = FastAPI(
+            title="VNPY Web Dashboard",
+            description="VNPY 交易看板 API",
+            version="1.0.0",
+            lifespan=lifespan
+        )
+
+        # 挂载静态文件
+        try:
+            import vnpy.web
+            web_dir = Path(vnpy.web.__file__).parent
+            static_dir = web_dir / "static"
+            if static_dir.exists():
+                app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+        except Exception as e:
+            print(f"Warning: Could not mount static files: {e}")
+
+        # 注册路由
+        app.include_router(strategy_router, prefix="/api/strategy", tags=["strategy"])
+        app.include_router(trading_router, prefix="/api/trading", tags=["trading"])
+        app.include_router(account_router, prefix="/api/account", tags=["account"])
+
+        # 根路径返回主页
+        @app.get("/", response_class=HTMLResponse)
+        async def root():
+            return self._get_index_html()
+
+        # WebSocket 端点
+        @app.websocket("/ws")
+        async def websocket_endpoint(websocket: WebSocket):
+            await self.manager.connect(websocket)
+            try:
+                # 发送初始数据
+                await websocket.send_json({
+                    "type": "init",
+                    "data": self._get_dashboard_data().dict()
+                })
+
+                # 接收客户端消息
+                while True:
+                    message = await websocket.receive_json()
+                    await self._handle_ws_message(websocket, message)
+
+            except WebSocketDisconnect:
+                self.manager.disconnect(websocket)
+            except Exception as e:
+                print(f"WebSocket error: {e}")
+                self.manager.disconnect(websocket)
+
+        return app
+
+    def _get_index_html(self) -> str:
+        """获取主页 HTML"""
+        return """
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNPY 交易看板</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+</head>
+<body>
+    <div id="app">
+        <el-container>
+            <el-header>
+                <h1>VNPY 交易看板</h1>
+                <div class="header-status">
+                    <el-tag :type="wsStatus.type">{{ wsStatus.text }}</el-tag>
+                    <span class="update-time">{{ lastUpdate }}</span>
+                </div>
+            </el-header>
+            <el-main>
+                <div class="dashboard">
+                    <!-- 账户概览 -->
+                    <el-row :gutter="20" class="overview-row">
+                        <el-col :span="6">
+                            <el-card class="metric-card">
+                                <div class="metric-label">总资产</div>
+                                <div class="metric-value">{{ formatMoney(account.balance) }}</div>
+                            </el-card>
+                        </el-col>
+                        <el-col :span="6">
+                            <el-card class="metric-card">
+                                <div class="metric-label">可用资金</div>
+                                <div class="metric-value">{{ formatMoney(account.available) }}</div>
+                            </el-card>
+                        </el-col>
+                        <el-col :span="6">
+                            <el-card class="metric-card">
+                                <div class="metric-label">当日盈亏</div>
+                                <div class="metric-value" :class="pnlClass">{{ formatMoney(dailyPnl) }}</div>
+                            </el-card>
+                        </el-col>
+                        <el-col :span="6">
+                            <el-card class="metric-card">
+                                <div class="metric-label">持仓市值</div>
+                                <div class="metric-value">{{ formatMoney(positionValue) }}</div>
+                            </el-card>
+                        </el-col>
+                    </el-row>
+
+                    <!-- 持仓列表 -->
+                    <el-row class="main-content">
+                        <el-col :span="16">
+                            <el-card>
+                                <template #header>
+                                    <span>持仓明细</span>
+                                    <el-button type="primary" size="small" @click="refreshData">刷新</el-button>
+                                </template>
+                                <el-table :data="positions" stripe>
+                                    <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
+                                    <el-table-column prop="direction" label="方向" width="80">
+                                        <template #default="scope">
+                                            <el-tag :type="scope.row.direction === '多' ? 'danger' : 'success'">
+                                                {{ scope.row.direction }}
+                                            </el-tag>
+                                        </template>
+                                    </el-table-column>
+                                    <el-table-column prop="volume" label="数量" width="100"></el-table-column>
+                                    <el-table-column prop="avg_price" label="成本价" width="100"></el-table-column>
+                                    <el-table-column prop="last_price" label="现价" width="100"></el-table-column>
+                                    <el-table-column prop="pnl" label="盈亏">
+                                        <template #default="scope">
+                                            <span :class="scope.row.pnl >= 0 ? 'profit' : 'loss'">
+                                                {{ formatMoney(scope.row.pnl) }}
+                                            </span>
+                                        </template>
+                                    </el-table-column>
+                                    <el-table-column prop="pnl_pct" label="盈亏率">
+                                        <template #default="scope">
+                                            <span :class="scope.row.pnl_pct >= 0 ? 'profit' : 'loss'">
+                                                {{ scope.row.pnl_pct.toFixed(2) }}%
+                                            </span>
+                                        </template>
+                                    </el-table-column>
+                                </el-table>
+                            </el-card>
+
+                            <!-- 成交记录 -->
+                            <el-card style="margin-top: 20px;">
+                                <template #header>
+                                    <span>最近成交</span>
+                                </template>
+                                <el-table :data="trades" stripe max-height="300">
+                                    <el-table-column prop="time" label="时间" width="100"></el-table-column>
+                                    <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
+                                    <el-table-column prop="direction" label="方向" width="80"></el-table-column>
+                                    <el-table-column prop="price" label="价格" width="100"></el-table-column>
+                                    <el-table-column prop="volume" label="数量" width="100"></el-table-column>
+                                </el-table>
+                            </el-card>
+                        </el-col>
+
+                        <!-- 右侧边栏 -->
+                        <el-col :span="8">
+                            <!-- 策略控制 -->
+                            <el-card>
+                                <template #header>
+                                    <span>策略控制</span>
+                                </template>
+                                <div class="strategy-list">
+                                    <div v-for="st in strategies" :key="st.name" class="strategy-item">
+                                        <div class="strategy-info">
+                                            <span class="strategy-name">{{ st.name }}</span>
+                                            <el-tag :type="st.running ? 'success' : 'info'" size="small">
+                                                {{ st.running ? '运行中' : '已停止' }}
+                                            </el-tag>
+                                        </div>
+                                        <el-switch
+                                            v-model="st.running"
+                                            @change="toggleStrategy(st)"
+                                        ></el-switch>
+                                    </div>
+                                </div>
+                            </el-card>
+
+                            <!-- 交易信号 -->
+                            <el-card style="margin-top: 20px;">
+                                <template #header>
+                                    <span>今日信号</span>
+                                </template>
+                                <div class="signal-list">
+                                    <div v-for="sig in signals" :key="sig.id" class="signal-item">
+                                        <span class="symbol">{{ sig.symbol }}</span>
+                                        <el-tag :type="sig.action === '买入' ? 'danger' : 'success'" size="small">
+                                            {{ sig.action }}
+                                        </el-tag>
+                                    </div>
+                                </div>
+                            </el-card>
+                        </el-col>
+                    </el-row>
+                </div>
+            </el-main>
+        </el-container>
+    </div>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>
+        """
+
+    def _register_events(self) -> None:
+        """注册事件监听"""
+        self.event_engine.register(EVENT_TICK, self._on_tick)
+        self.event_engine.register(EVENT_TRADE, self._on_trade)
+        self.event_engine.register(EVENT_ORDER, self._on_order)
+        self.event_engine.register(EVENT_POSITION, self._on_position)
+        self.event_engine.register(EVENT_ACCOUNT, self._on_account)
+
+    def _on_tick(self, event: Event) -> None:
+        """处理 Tick 事件"""
+        tick: TickData = event.data
+        self.ticks[tick.vt_symbol] = tick
+
+    def _on_trade(self, event: Event) -> None:
+        """处理成交事件"""
+        trade: TradeData = event.data
+        self.trades[trade.vt_tradeid] = trade
+        # 推送实时成交通知
+        asyncio.create_task(self._push_notification({
+            "type": "trade",
+            "data": {
+                "vt_symbol": f"{trade.symbol}.{trade.exchange.value}",
+                "direction": trade.direction.value,
+                "price": trade.price,
+                "volume": trade.volume,
+                "time": trade.datetime.strftime("%H:%M:%S") if trade.datetime else "--"
+            }
+        }))
+
+    def _on_order(self, event: Event) -> None:
+        """处理订单事件"""
+        order: OrderData = event.data
+        self.orders[order.vt_orderid] = order
+
+    def _on_position(self, event: Event) -> None:
+        """处理持仓事件"""
+        position: PositionData = event.data
+        self.positions[position.vt_positionid] = position
+
+    def _on_account(self, event: Event) -> None:
+        """处理账户事件"""
+        account: AccountData = event.data
+        self.account = account
+
+    def _get_dashboard_data(self) -> DashboardData:
+        """获取看板数据"""
+        return DashboardData(
+            account=self._get_account_data(),
+            positions=self._get_position_data(),
+            trades=self._get_trade_data(),
+            strategies=self._get_strategy_data(),
+            signals=self._get_signal_data()
+        )
+
+    def _get_account_data(self) -> dict:
+        """获取账户数据"""
+        if not self.account:
+            return {"balance": 0, "available": 0, "frozen": 0}
+        return {
+            "balance": self.account.balance,
+            "available": self.account.available,
+            "frozen": self.account.frozen
+        }
+
+    def _get_position_data(self) -> list:
+        """获取持仓数据"""
+        positions = []
+        for pos in self.positions.values():
+            tick = self.ticks.get(f"{pos.symbol}.{pos.exchange.value}")
+            last_price = tick.last_price if tick else pos.price
+
+            pnl = (last_price - pos.price) * pos.volume
+            pnl_pct = (last_price / pos.price - 1) * 100 if pos.price else 0
+
+            positions.append({
+                "vt_symbol": f"{pos.symbol}.{pos.exchange.value}",
+                "direction": pos.direction.value,
+                "volume": pos.volume,
+                "avg_price": round(pos.price, 2),
+                "last_price": round(last_price, 2),
+                "pnl": round(pnl, 2),
+                "pnl_pct": round(pnl_pct, 2)
+            })
+        return positions
+
+    def _get_trade_data(self) -> list:
+        """获取成交数据"""
+        trades = []
+        for trade in sorted(self.trades.values(), key=lambda x: x.datetime or datetime.min, reverse=True)[:50]:
+            trades.append({
+                "vt_symbol": f"{trade.symbol}.{trade.exchange.value}",
+                "direction": trade.direction.value,
+                "price": trade.price,
+                "volume": trade.volume,
+                "time": trade.datetime.strftime("%H:%M:%S") if trade.datetime else "--"
+            })
+        return trades
+
+    def _get_strategy_data(self) -> list:
+        """获取策略数据（从引擎获取）"""
+        # TODO: 从策略引擎获取实际策略状态
+        return [
+            {"name": "XGBExtremaLive", "running": True}
+        ]
+
+    def _get_signal_data(self) -> list:
+        """获取信号数据"""
+        # TODO: 从信号管理器获取实际信号
+        return []
+
+    async def _broadcast_loop(self) -> None:
+        """后台广播循环 - 定期推送数据更新"""
+        while self._running:
+            try:
+                await self._push_dashboard_update()
+                await asyncio.sleep(1)  # 每秒更新一次
+            except asyncio.CancelledError:
+                break
+            except Exception as e:
+                print(f"Broadcast error: {e}")
+                await asyncio.sleep(5)
+
+    async def _push_dashboard_update(self) -> None:
+        """推送看板数据更新"""
+        await self.manager.broadcast({
+            "type": "update",
+            "data": self._get_dashboard_data().dict()
+        })
+
+    async def _push_notification(self, message: dict) -> None:
+        """推送通知"""
+        await self.manager.broadcast(message)
+
+    async def _handle_ws_message(self, websocket: WebSocket, message: dict) -> None:
+        """处理 WebSocket 消息"""
+        msg_type = message.get("type")
+
+        if msg_type == "ping":
+            await websocket.send_json({"type": "pong"})
+
+        elif msg_type == "get_data":
+            # 客户端请求数据
+            await websocket.send_json({
+                "type": "data",
+                "data": self._get_dashboard_data().dict()
+            })
+
+        elif msg_type == "toggle_strategy":
+            # 切换策略状态
+            strategy_name = message.get("name")
+            running = message.get("running")
+            print(f"Toggle strategy {strategy_name} -> {running}")
+            # TODO: 调用策略引擎启停策略
+
+    async def start_server(self, host: str = "0.0.0.0", port: int = 8000) -> None:
+        """启动 Web 服务器
+
+        Parameters
+        ----------
+        host : str
+            监听地址
+        port : int
+            监听端口
+        """
+        import uvicorn
+        print(f"启动 Web 服务: http://{host}:{port}")
+        config = uvicorn.Config(self.app, host=host, port=port, log_level="info")
+        server = uvicorn.Server(config)
+        await server.serve()
+
+    def start(self, host: str = "0.0.0.0", port: int = 8000) -> None:
+        """同步方式启动服务器（用于非异步环境）"""
+        import uvicorn
+        print(f"启动 Web 服务: http://{host}:{port}")
+        uvicorn.run(self.app, host=host, port=port)
