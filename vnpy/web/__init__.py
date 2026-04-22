@@ -26,6 +26,11 @@ try:
 except ImportError:
     WebEngine = None  # fastapi not installed
 
+try:
+    from .rpc_engine import RpcWebEngine
+except ImportError:
+    RpcWebEngine = None  # vnpy_rpcservice not installed
+
 from .templates import (
     DashboardData,
     StrategyStatus,
@@ -40,6 +45,7 @@ from .templates import (
 
 __all__ = [
     "WebEngine",
+    "RpcWebEngine",
     "DashboardData",
     "StrategyStatus",
     "PositionView",
