@@ -29,13 +29,12 @@ from vnpy.alpha.strategy.template import AlphaStrategy
 from vnpy.alpha.logger import logger
 
 
-class LiveAlphaEngine:
-    """Alpha 策略实盘交易引擎
+class TradeEngine:
+    """交易引擎
 
-    支持三种模式：
+    支持两种模式：
     1. 实盘模式 (paper_trading=False): 真实订单发送到交易所
     2. 模拟盘模式 (paper_trading=True): 使用实时行情，本地模拟撮合
-    3. 回测模式: 使用 BacktestingEngine
 
     与 BacktestingEngine 保持接口兼容，方便策略无缝切换。
     """
@@ -107,7 +106,7 @@ class LiveAlphaEngine:
         # 注册事件监听
         self.register_event()
 
-        logger.info(f"LiveAlphaEngine 初始化完成，网关: {gateway_name}")
+        logger.info(f"TradeEngine 初始化完成，网关: {gateway_name}")
 
     def register_event(self) -> None:
         """注册事件监听"""
@@ -795,7 +794,7 @@ class LiveAlphaEngine:
 
     def write_log(self, msg: str, strategy: AlphaStrategy | None = None) -> None:
         """写入日志"""
-        source = strategy.strategy_name if strategy else "LiveAlphaEngine"
+        source = strategy.strategy_name if strategy else "TradeEngine"
         logger.info(f"[{source}] {msg}")
 
     def get_pos(self, vt_symbol: str) -> float:
