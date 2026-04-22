@@ -1,7 +1,7 @@
 """
 XGBoost 极值选股策略实盘交易示例
 
-使用 LiveAlphaEngine 进行实盘交易，连接迅投研或其他交易网关。
+使用 TradeEngine 进行实盘交易，连接迅投研或其他交易网关。
 """
 import signal
 import sys
@@ -25,7 +25,7 @@ SETTINGS["datafeed.username"] = "client"
 SETTINGS["datafeed.password"] = ""
 
 from vnpy.alpha import AlphaLab
-from vnpy.alpha.strategy import LiveAlphaEngine
+from vnpy.alpha.strategy import TradeEngine
 from vnpy.alpha.strategy.strategies.xgb_extrema_strategy import XGBExtremaStrategy
 from vnpy.trader.constant import Interval, Direction
 from vnpy.alpha.logger import logger
@@ -80,7 +80,7 @@ class LiveTrader:
         self.event_engine = EventEngine()
         self.main_engine = MainEngine(self.event_engine)
         self.lab = AlphaLab(str(LAB_PATH))
-        self.live_engine: LiveAlphaEngine | None = None
+        self.live_engine: TradeEngine | None = None
         self.web_engine = None
         self.gateway_name = "XT"  # 迅投研网关
 
@@ -194,7 +194,7 @@ class LiveTrader:
         logger.info("=" * 60)
 
         # 创建实盘引擎
-        self.live_engine = LiveAlphaEngine(
+        self.live_engine = TradeEngine(
             main_engine=self.main_engine,
             event_engine=self.event_engine,
             lab=self.lab,
@@ -252,9 +252,8 @@ class LiveTrader:
                         event_engine=self.event_engine,
                         req_address=self.rpc_req,
                         sub_address=self.rpc_sub,
-                        mock_capital=self.capital,
                     )
-                    # 绑定 LiveAlphaEngine（用于获取模拟盘数据）
+                    # 绑定 TradeEngine（用于获取模拟盘数据）
                     self.web_engine.live_engine = self.live_engine
 
                     # 连接RPC
