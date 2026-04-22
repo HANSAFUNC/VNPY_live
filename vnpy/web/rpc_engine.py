@@ -115,8 +115,17 @@ class RpcWebEngine(WebEngine):
             # 设置事件回调
             self.rpc_client.callback = self._on_rpc_event
 
-            # 等待连接建立
+            # 等待连接建立并验证
+            from time import sleep
             sleep(0.5)
+
+            # 测试RPC连接是否真正可用
+            try:
+                test_accounts = self.rpc_client.get_all_accounts()
+                print(f"  RPC连接验证成功，获取到 {len(test_accounts)} 个账户")
+            except Exception as e:
+                print(f"  ⚠ RPC连接验证警告: {e}")
+                print("  将继续尝试连接，但数据获取可能失败")
 
             self._connected = True
             print(f"✓ RPC连接成功: {self.req_address}")
@@ -310,6 +319,7 @@ class RpcWebEngine(WebEngine):
             return self.all_candles[vt_symbol]
 
         if not self._connected or not self.rpc_client:
+            print(f"  {vt_symbol}: RPC未连接，无法获取历史数据")
             return []
 
         try:
@@ -325,6 +335,8 @@ class RpcWebEngine(WebEngine):
             end = datetime.now()
             start = end - timedelta(days=days)
 
+            print(f"  {vt_symbol}: 请求历史数据 {start.strftime('%Y-%m-%d')} ~ {end.strftime('%Y-%m-%d')}")
+
             # 创建历史数据请求
             req = HistoryRequest(
                 symbol=symbol,
@@ -334,20 +346,25 @@ class RpcWebEngine(WebEngine):
                 end=end
             )
 
-            # 通过RPC查询历史数据（短超时，避免阻塞）
-            # 注意：vnpy.rpc 默认超时30秒，这里接受可能的超时
+            # 通过RPC查询历史数据
             try:
                 bars = self.rpc_client.query_history(req, "")
             except Exception as e:
-                if "timeout" in str(e).lower() or "No response" in str(e):
-                    # 超时或无响应，记录但不阻塞
-                    print(f"  {vt_symbol} 历史数据查询超时，将使用空数据")
-                    return []
-                raise
+                error_msg = str(e)
+                if "timeout" in error_msg.lower() or "No response" in error_msg:
+                    print(f"    → 查询超时（30秒），可能原因：")
+                    print(f"      1. RPC服务端未启动或网关未连接")
+                    print(f"      2. 数据库中无此合约数据")
+                    print(f"      3. 网络连接问题")
+                else:
+                    print(f"    → RPC调用失败: {error_msg}")
+                return []
 
             if not bars:
-                # 无数据（可能是数据库中无此日期范围数据）
-                print(f"  {vt_symbol} 无历史数据")
+                print(f"    → 返回空数据，可能原因：")
+                print(f"      1. 数据库中无此日期范围的数据")
+                print(f"      2. 该合约在数据库中不存在")
+                print(f"      3. 网关未连接，无法查询")
                 return []
 
             # 转换为 CandleData
@@ -362,11 +379,14 @@ class RpcWebEngine(WebEngine):
                     volume=bar.volume
                 ))
 
-            print(f"  {vt_symbol} 加载 {len(candles)} 条历史数据")
+            print(f"    → 成功加载 {len(candles)} 条数据")
+            print(f"      日期范围: {candles[0].timestamp} ~ {candles[-1].timestamp}")
+
+            # 缓存结果
+            self.all_candles[vt_symbol] = candles
             return candles
 
         except Exception as e:
-            # 其他错误（如数据不存在），静默返回空
-            print(f"  {vt_symbol} 历史数据加载失败: {e}")
+            print(f"  {vt_symbol}: 历史数据加载异常: {e}")
             return []
             return []
