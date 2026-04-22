@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNPY Web Dashboard</title>
+    <!-- Element Plus CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div id="app">
+        <el-container>
+            <!-- Header -->
+            <el-header>
+                <h1>VNPY 交易看板</h1>
+                <div class="header-status">
+                    <span class="update-time">最后更新: {{ lastUpdate }}</span>
+                    <el-tag :type="wsStatus.type" effect="dark">
+                        <span :class="['status-dot', wsStatus.type === 'success' ? 'online' : 'offline']"></span>
+                        {{ wsStatus.text }}
+                    </el-tag>
+                </div>
+            </el-header>
+
+            <el-main class="dashboard">
+                <!-- 账户概览 -->
+                <el-row :gutter="20" class="overview-row">
+                    <el-col :span="6">
+                        <el-card>
+                            <div class="metric-card">
+                                <div class="metric-label">总资产</div>
+                                <div class="metric-value">{{ formatMoney(account.balance) }}</div>
+                            </div>
+                        </el-card>
+                    </el-col>
+                    <el-col :span="6">
+                        <el-card>
+                            <div class="metric-card">
+                                <div class="metric-label">可用资金</div>
+                                <div class="metric-value">{{ formatMoney(account.available) }}</div>
+                            </div>
+                        </el-card>
+                    </el-col>
+                    <el-col :span="6">
+                        <el-card>
+                            <div class="metric-card">
+                                <div class="metric-label">冻结资金</div>
+                                <div class="metric-value">{{ formatMoney(account.frozen) }}</div>
+                            </div>
+                        </el-card>
+                    </el-col>
+                    <el-col :span="6">
+                        <el-card>
+                            <div class="metric-card">
+                                <div class="metric-label">当日盈亏</div>
+                                <div :class="['metric-value', pnlClass]">{{ formatMoney(dailyPnl) }}</div>
+                            </div>
+                        </el-card>
+                    </el-col>
+                </el-row>
+
+                <!-- 主体内容区 -->
+                <el-row :gutter="20" class="main-content">
+                    <el-col :span="8">
+                        <!-- 策略状态 -->
+                        <el-card title="策略状态" style="margin-bottom: 20px;">
+                            <div class="strategy-list">
+                                <div v-for="strategy in strategies" :key="strategy.name" class="strategy-item">
+                                    <div class="strategy-info">
+                                        <span class="strategy-name">{{ strategy.name }}</span>
+                                        <el-tag :type="strategy.running ? 'success' : 'info'" size="small">
+                                            {{ strategy.running ? '运行中' : '已停止' }}
+                                        </el-tag>
+                                    </div>
+                                    <el-switch
+                                        v-model="strategy.running"
+                                        @change="toggleStrategy(strategy)"
+                                    ></el-switch>
+                                </div>
+                            </div>
+                        </el-card>
+
+                        <!-- 最近成交 -->
+                        <el-card title="最近成交" style="margin-bottom: 20px;">
+                            <el-table :data="trades.slice(0, 10)" size="small">
+                                <el-table-column prop="vt_symbol" label="代码" width="100"></el-table-column>
+                                <el-table-column prop="direction" label="方向" width="60">
+                                    <template #default="{ row }">
+                                        <el-tag :type="row.direction === '多' ? 'danger' : 'success'" size="small">
+                                            {{ row.direction }}
+                                        </el-tag>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="volume" label="数量" width="80"></el-table-column>
+                                <el-table-column prop="price" label="价格">
+                                    <template #default="{ row }">
+                                        {{ row.price.toFixed(2) }}
+                                    </template>
+                                </el-table-column>
+                            </el-table>
+                        </el-card>
+                    </el-col>
+
+                    <el-col :span="16">
+                        <!-- 持仓明细 -->
+                        <el-card title="持仓明细">
+                            <template #header>
+                                <div style="display: flex; justify-content: space-between; align-items: center;">
+                                    <span>持仓明细</span>
+                                    <span style="color: #666; font-size: 14px;">
+                                        持仓市值: {{ formatMoney(positionValue) }}
+                                    </span>
+                                </div>
+                            </template>
+                            <el-table :data="positions" size="small">
+                                <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
+                                <el-table-column prop="direction" label="方向" width="80">
+                                    <template #default="{ row }">
+                                        <el-tag :type="row.direction === '多' ? 'danger' : 'success'" size="small">
+                                            {{ row.direction }}
+                                        </el-tag>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="volume" label="持仓量" width="100"></el-table-column>
+                                <el-table-column prop="price" label="持仓成本">
+                                    <template #default="{ row }">
+                                        {{ row.price.toFixed(2) }}
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="last_price" label="最新价">
+                                    <template #default="{ row }">
+                                        {{ row.last_price.toFixed(2) }}
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="pnl" label="盈亏">
+                                    <template #default="{ row }">
+                                        <span :class="row.pnl >= 0 ? 'profit' : 'loss'">
+                                            {{ row.pnl >= 0 ? '+' : '' }}{{ row.pnl.toFixed(2) }}
+                                        </span>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="pnl_pct" label="盈亏率">
+                                    <template #default="{ row }">
+                                        <span :class="row.pnl_pct >= 0 ? 'profit' : 'loss'">
+                                            {{ row.pnl_pct >= 0 ? '+' : '' }}{{ row.pnl_pct.toFixed(2) }}%
+                                        </span>
+                                    </template>
+                                </el-table-column>
+                            </el-table>
+                        </el-card>
+                    </el-col>
+                </el-row>
+            </el-main>
+        </el-container>
+    </div>
+
+    <!-- Vue 3 -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Element Plus -->
+    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    <!-- ECharts -->
+    <script src="https://unpkg.com/echarts@5/dist/echarts.min.js"></script>
+    <!-- App -->
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

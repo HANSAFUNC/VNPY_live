@@ -36,6 +36,12 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 @app.get("/", response_class=HTMLResponse)
 async def index():
+    """首页 - 返回静态 HTML 文件"""
+    index_file = STATIC_DIR / "index.html"
+    if index_file.exists():
+        with open(index_file, 'r', encoding='utf-8') as f:
+            return f.read()
+    # 如果文件不存在，返回简单的内联 HTML
     return """
     <!DOCTYPE html>
     <html>
@@ -45,80 +51,13 @@ async def index():
         <style>
             body { font-family: Arial, sans-serif; margin: 20px; }
             .header { background: #1890ff; color: white; padding: 20px; }
-            .data-section { margin: 20px 0; }
-            .data-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; }
-            pre { background: #f5f5f5; padding: 10px; overflow: auto; max-height: 300px; }
-            .status { color: #666; font-size: 12px; }
         </style>
     </head>
     <body>
         <div class="header">
             <h1>VNPY Web Dashboard</h1>
-            <p>通用交易监控看板</p>
+            <p>index.html not found</p>
         </div>
-        <div class="status" id="status">正在连接 WebSocket...</div>
-        <div class="data-section">
-            <div class="data-title">账户信息</div>
-            <pre id="account">等待数据...</pre>
-        </div>
-        <div class="data-section">
-            <div class="data-title">持仓信息</div>
-            <pre id="positions">等待数据...</pre>
-        </div>
-        <div class="data-section">
-            <div class="data-title">最新成交</div>
-            <pre id="trades">等待数据...</pre>
-        </div>
-        <script>
-            // 数据存储
-            let positions = {};
-            let trades = [];
-
-            console.log('正在连接 WebSocket...');
-            const ws = new WebSocket(`ws://${window.location.host}/ws`);
-
-            ws.onopen = function() {
-                console.log('WebSocket 已连接');
-                document.getElementById('status').textContent = 'WebSocket 已连接 - 等待数据...';
-                document.getElementById('status').style.color = 'green';
-            };
-
-            ws.onmessage = function(event) {
-                console.log('原始消息:', event.data);
-                try {
-                    const data = JSON.parse(event.data);
-                    console.log('收到数据:', data);
-                    document.getElementById('status').textContent = 'WebSocket 已连接 - 最后更新: ' + new Date().toLocaleTimeString();
-
-                    if (data.type === 'account') {
-                        document.getElementById('account').textContent = JSON.stringify(data.data, null, 2);
-                    } else if (data.type === 'position') {
-                        positions[data.data.vt_symbol] = data.data;
-                        document.getElementById('positions').textContent = JSON.stringify(Object.values(positions), null, 2);
-                    } else if (data.type === 'trade') {
-                        trades.unshift(data.data);
-                        if (trades.length > 20) trades = trades.slice(0, 20);
-                        document.getElementById('trades').textContent = JSON.stringify(trades, null, 2);
-                    } else {
-                        console.log('未知数据类型:', data.type);
-                    }
-                } catch (e) {
-                    console.error('解析消息失败:', e, event.data);
-                }
-            };
-
-            ws.onclose = function(event) {
-                console.log('WebSocket 已断开:', event.code, event.reason);
-                document.getElementById('status').textContent = 'WebSocket 已断开 (代码: ' + event.code + ')';
-                document.getElementById('status').style.color = 'red';
-            };
-
-            ws.onerror = function(error) {
-                console.error('WebSocket 错误:', error);
-                document.getElementById('status').textContent = 'WebSocket 错误';
-                document.getElementById('status').style.color = 'red';
-            };
-        </script>
     </body>
     </html>
     """
