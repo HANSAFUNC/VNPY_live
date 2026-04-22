@@ -54,7 +54,7 @@ class RpcWebEngine(WebEngine):
         self.rpc_client: Optional = None
         self._connected = False
 
-        # LiveAlphaEngine 引用（用于获取模拟盘数据）
+        # TradeEngine 引用（用于获取模拟盘数据）
         self.live_engine: Optional["TradeEngine"] = None
 
         # 从父类复制必要的初始化
@@ -170,8 +170,8 @@ class RpcWebEngine(WebEngine):
             print("RPC连接已断开")
 
     def _get_account_data(self) -> dict:
-        """获取账户数据（优先从 LiveAlphaEngine 获取模拟盘数据）"""
-        # 1. 如果绑定了 LiveAlphaEngine 且有数据，直接返回
+        """获取账户数据（优先从 TradeEngine 获取模拟盘数据）"""
+        # 1. 如果绑定了 TradeEngine 且有数据，直接返回
         if self.live_engine and self.live_engine.account:
             acc = self.live_engine.account
             return {
@@ -206,8 +206,8 @@ class RpcWebEngine(WebEngine):
         }
 
     def _get_position_data(self) -> list:
-        """获取持仓数据（优先从 LiveAlphaEngine 获取模拟盘数据）"""
-        # 1. 如果绑定了 LiveAlphaEngine 且有数据，直接返回
+        """获取持仓数据（优先从 TradeEngine 获取模拟盘数据）"""
+        # 1. 如果绑定了 TradeEngine 且有数据，直接返回
         if self.live_engine and self.live_engine.positions:
             positions = []
             for vt_symbol, pos in self.live_engine.positions.items():
@@ -258,13 +258,13 @@ class RpcWebEngine(WebEngine):
         return []
 
     def _get_trade_data(self) -> list:
-        """获取成交数据（优先从 LiveAlphaEngine 获取模拟盘数据）"""
+        """获取成交数据（优先从 TradeEngine 获取模拟盘数据）"""
         trades = []
 
-        # 1. 如果绑定了 LiveAlphaEngine 且有数据，直接返回
+        # 1. 如果绑定了 TradeEngine 且有数据，直接返回
         if self.live_engine:
             from datetime import datetime
-            # 从 LiveAlphaEngine 获取成交记录
+            # 从 TradeEngine 获取成交记录
             if hasattr(self.live_engine, 'trades'):
                 for trade in sorted(self.live_engine.trades.values(), key=lambda x: x.datetime or datetime.min, reverse=True)[:50]:
                     trades.append({
