@@ -37,9 +37,18 @@ LAB_PATH = SCRIPT_DIR / "lab" / "csi300"
 
 
 class LiveTrader:
-    """实盘/模拟盘交易管理器"""
+    """实盘/模拟盘交易管理器（支持本地和RPC模式）"""
 
-    def __init__(self, paper_trading: bool = True, enable_web: bool = True):
+    def __init__(
+        self,
+        paper_trading: bool = True,
+        enable_web: bool = True,
+        rpc_mode: bool = False,
+        rpc_req: str = "tcp://localhost:2014",
+        rpc_sub: str = "tcp://localhost:2015",
+        web_host: str = "0.0.0.0",
+        web_port: int = 8000
+    ):
         """
         初始化
 
@@ -49,9 +58,24 @@ class LiveTrader:
             True=模拟盘（本地撮合），False=实盘（真实交易）
         enable_web : bool
             是否启用 Web 看板
+        rpc_mode : bool
+            True=使用RPC模式连接远程服务器, False=本地直连
+        rpc_req : str
+            RPC请求地址 (默认: tcp://localhost:2014)
+        rpc_sub : str
+            RPC推送地址 (默认: tcp://localhost:2015)
+        web_host : str
+            Web服务监听地址
+        web_port : int
+            Web服务监听端口
         """
         self.paper_trading = paper_trading
         self.enable_web = enable_web
+        self.rpc_mode = rpc_mode
+        self.rpc_req = rpc_req
+        self.rpc_sub = rpc_sub
+        self.web_host = web_host
+        self.web_port = web_port
 
         self.event_engine = EventEngine()
         self.main_engine = MainEngine(self.event_engine)
@@ -220,16 +244,42 @@ class LiveTrader:
         # 启动 Web 看板
         if self.enable_web:
             try:
-                from vnpy.web import WebEngine
-                self.web_engine = self.main_engine.add_engine(WebEngine)
-                import threading
-                web_thread = threading.Thread(
-                    target=self.web_engine.start,
-                    args=("0.0.0.0", 8000),
-                    daemon=True
-                )
-                web_thread.start()
-                logger.info(f"\n✓ Web 看板已启动: http://localhost:8000")
+                if self.rpc_mode:
+                    # RPC模式：使用 RpcWebEngine 连接远程服务器
+                    from vnpy.web import RpcWebEngine
+                    self.web_engine = RpcWebEngine(
+                        main_engine=self.main_engine,
+                        event_engine=self.event_engine,
+                        req_address=self.rpc_req,
+                        sub_address=self.rpc_sub
+                    )
+                    # 连接RPC
+                    if not self.web_engine.connect_rpc():
+                        logger.warning("\n⚠ RPC连接失败，Web看板可能无法获取数据")
+
+                    # 启动Web服务（阻塞模式在单独线程）
+                    import threading
+                    web_thread = threading.Thread(
+                        target=self.web_engine.start,
+                        args=(self.web_host, self.web_port),
+                        daemon=True
+                    )
+                    web_thread.start()
+                    logger.info(f"\n✓ Web 看板已启动 (RPC模式): http://{self.web_host}:{self.web_port}")
+                    logger.info(f"  RPC服务器: {self.rpc_req}")
+                else:
+                    # 本地模式：使用标准 WebEngine
+                    from vnpy.web import WebEngine
+                    self.web_engine = self.main_engine.add_engine(WebEngine)
+                    import threading
+                    web_thread = threading.Thread(
+                        target=self.web_engine.start,
+                        args=(self.web_host, self.web_port),
+                        daemon=True
+                    )
+                    web_thread.start()
+                    logger.info(f"\n✓ Web 看板已启动 (本地模式): http://{self.web_host}:{self.web_port}")
+
                 logger.info("  请在浏览器中打开查看实时数据")
             except Exception as e:
                 logger.warning(f"\n⚠ Web 看板启动失败: {e}")
@@ -258,6 +308,10 @@ class LiveTrader:
 
         if self.live_engine:
             self.live_engine.stop_trading()
+
+        # RPC模式下断开RPC连接
+        if self.rpc_mode and self.web_engine:
+            self.web_engine.disconnect_rpc()
 
         self.main_engine.close()
 
@@ -399,6 +453,11 @@ def main():
     parser.add_argument('--capital', type=float, default=1_000_000, help='初始资金（默认100万）')
     parser.add_argument('--web', action='store_true', default=True, help='启用 Web 看板')
     parser.add_argument('--no-web', action='store_true', help='禁用 Web 看板')
+    parser.add_argument('--rpc', action='store_true', help='使用RPC模式连接远程交易服务器')
+    parser.add_argument('--rpc-req', default='tcp://localhost:2014', help='RPC请求地址')
+    parser.add_argument('--rpc-sub', default='tcp://localhost:2015', help='RPC推送地址')
+    parser.add_argument('--web-host', default='0.0.0.0', help='Web服务监听地址')
+    parser.add_argument('--web-port', type=int, default=8000, help='Web服务监听端口')
 
     args = parser.parse_args()
 
@@ -413,7 +472,15 @@ def main():
         logger.info("模拟盘模式 - 使用实时行情，本地模拟成交")
         logger.info("=" * 60)
 
-        trader = LiveTrader(paper_trading=True, enable_web=enable_web)
+        trader = LiveTrader(
+            paper_trading=True,
+            enable_web=enable_web,
+            rpc_mode=args.rpc,
+            rpc_req=args.rpc_req,
+            rpc_sub=args.rpc_sub,
+            web_host=args.web_host,
+            web_port=args.web_port
+        )
         trader.gateway_name = args.gateway  # 使用指定网关获取行情
         trader.capital = args.capital
 
@@ -439,7 +506,15 @@ def main():
         logger.info("实盘模式 - 真实订单发送到交易所")
         logger.info("=" * 60)
 
-        trader = LiveTrader(paper_trading=False, enable_web=enable_web)
+        trader = LiveTrader(
+            paper_trading=False,
+            enable_web=enable_web,
+            rpc_mode=args.rpc,
+            rpc_req=args.rpc_req,
+            rpc_sub=args.rpc_sub,
+            web_host=args.web_host,
+            web_port=args.web_port
+        )
         trader.gateway_name = args.gateway
         trader.capital = args.capital
 
