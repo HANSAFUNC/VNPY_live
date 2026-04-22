@@ -12,6 +12,11 @@ const app = createApp({
         const lastUpdate = ref('--');
         const reconnectTimer = ref(null);
 
+        // Tab 相关
+        const activeTab = ref('trading');
+        const selectedSymbol = ref('');
+        const availableSymbols = ref([]);
+
         // 账户数据
         const account = ref({
             balance: 0,
@@ -30,7 +35,37 @@ const app = createApp({
             { name: 'XGBExtremaLive', running: true }
         ]);
 
-        // 当日盈亏（简化计算）
+        // 信号数据
+        const signals = ref([]);
+
+        // 股票池
+        const stockPool = ref({
+            buy_stocks: [],
+            sell_stocks: [],
+            last_update: ''
+        });
+
+        // 统计数据
+        const stats = ref({
+            total_return: 0,
+            annual_return: 0,
+            max_drawdown: 0,
+            sharpe_ratio: 0,
+            win_rate: 0,
+            profit_factor: 0,
+            total_trades: 0,
+            winning_trades: 0,
+            losing_trades: 0,
+            avg_profit: 0,
+            avg_loss: 0
+        });
+
+        // 图表实例
+        let klineChart = null;
+        let pnlChart = null;
+        let equityChart = null;
+
+        // 当日盈亏
         const dailyPnl = computed(() => {
             return positions.value.reduce((sum, pos) => sum + (pos.pnl || 0), 0);
         });
@@ -79,7 +114,6 @@ const app = createApp({
             ws.value.onclose = () => {
                 console.log('WebSocket disconnected');
                 wsConnected.value = false;
-                // 自动重连
                 reconnectTimer.value = setTimeout(() => {
                     console.log('Reconnecting...');
                     connectWebSocket();
@@ -97,7 +131,6 @@ const app = createApp({
 
             switch (type) {
                 case 'account':
-                    // 更新账户数据
                     if (data) {
                         account.value = { ...account.value, ...data };
                     }
@@ -105,11 +138,11 @@ const app = createApp({
                     break;
 
                 case 'position':
-                    // 更新持仓数据
-                    if (data) {
+                    // 更新单个持仓
+                    if (data && data.vt_symbol) {
                         const idx = positions.value.findIndex(p => p.vt_symbol === data.vt_symbol);
                         if (idx >= 0) {
-                            positions.value[idx] = data;
+                            positions.value[idx] = { ...positions.value[idx], ...data };
                         } else {
                             positions.value.push(data);
                         }
@@ -144,6 +177,13 @@ const app = createApp({
                     lastUpdate.value = new Date().toLocaleTimeString();
                     break;
 
+                case 'stock_pool':
+                    // 更新股票池
+                    if (data) {
+                        stockPool.value = data;
+                    }
+                    break;
+
                 case 'init':
                 case 'update':
                     // 全量更新
@@ -155,6 +195,18 @@ const app = createApp({
                     }
                     if (data.trades) {
                         trades.value = data.trades;
+                    }
+                    if (data.strategies) {
+                        strategies.value = data.strategies;
+                    }
+                    if (data.signals) {
+                        signals.value = data.signals;
+                    }
+                    if (data.stock_pool) {
+                        stockPool.value = data.stock_pool;
+                    }
+                    if (data.stats) {
+                        stats.value = data.stats;
                     }
                     lastUpdate.value = new Date().toLocaleTimeString();
                     break;
@@ -192,12 +244,89 @@ const app = createApp({
             return volume.toString();
         };
 
+        // 初始化图表
+        const initCharts = () => {
+            if (!klineChart) {
+                const el = document.getElementById('kline-chart');
+                if (el) klineChart = echarts.init(el);
+            }
+            if (!pnlChart) {
+                const el = document.getElementById('pnl-chart');
+                if (el) pnlChart = echarts.init(el);
+            }
+            if (!equityChart) {
+                const el = document.getElementById('equity-chart');
+                if (el) equityChart = echarts.init(el);
+            }
+        };
+
+        // 更新图表
+        const updateCharts = () => {
+            initCharts();
+
+            // 盈亏分布饼图
+            if (pnlChart) {
+                const pnlOption = {
+                    tooltip: { trigger: 'item' },
+                    legend: { orient: 'vertical', left: 'left' },
+                    series: [
+                        {
+                            name: '交易分布',
+                            type: 'pie',
+                            radius: '50%',
+                            data: [
+                                { value: stats.value.winning_trades || 0, name: '盈利', itemStyle: { color: '#67c23a' } },
+                                { value: stats.value.losing_trades || 0, name: '亏损', itemStyle: { color: '#f56c6c' } }
+                            ]
+                        }
+                    ]
+                };
+                pnlChart.setOption(pnlOption);
+            }
+
+            // 资金曲线
+            if (equityChart) {
+                const equityOption = {
+                    tooltip: { trigger: 'axis' },
+                    xAxis: { type: 'category', data: ['1月', '2月', '3月', '4月', '5月', '6月'] },
+                    yAxis: { type: 'value' },
+                    series: [
+                        {
+                            name: '资金',
+                            type: 'line',
+                            smooth: true,
+                            data: [100, 105, 103, 110, 115, 115.5]
+                        }
+                    ]
+                };
+                equityChart.setOption(equityOption);
+            }
+        };
+
         // ==================== Watchers ====================
+
+        watch(activeTab, (newVal) => {
+            if (newVal === 'charts' || newVal === 'analysis') {
+                setTimeout(() => {
+                    initCharts();
+                    updateCharts();
+                }, 100);
+            }
+        });
 
         // ==================== 生命周期 ====================
 
+        const handleResize = () => {
+            if (klineChart) klineChart.resize();
+            if (pnlChart) pnlChart.resize();
+            if (equityChart) equityChart.resize();
+        };
+
         onMounted(() => {
             connectWebSocket();
+
+            // 监听窗口大小改变
+            window.addEventListener('resize', handleResize);
 
             // 定期发送心跳
             setInterval(() => {
@@ -212,6 +341,12 @@ const app = createApp({
                 ws.value.close();
             }
             clearTimeout(reconnectTimer.value);
+            window.removeEventListener('resize', handleResize);
+
+            // 销毁图表实例
+            if (klineChart) { klineChart.dispose(); klineChart = null; }
+            if (pnlChart) { pnlChart.dispose(); pnlChart = null; }
+            if (equityChart) { equityChart.dispose(); equityChart = null; }
         });
 
         // ==================== 返回 ====================
@@ -221,11 +356,19 @@ const app = createApp({
             positions,
             trades,
             strategies,
+            signals,
+            stockPool,
+            stats,
             lastUpdate,
             wsStatus,
             dailyPnl,
             positionValue,
             pnlClass,
+
+            // Tab 相关
+            activeTab,
+            selectedSymbol,
+            availableSymbols,
 
             // 方法
             toggleStrategy,
