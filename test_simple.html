@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNPY 交易看板 - 测试</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .el-header { background: #409eff; color: white; display: flex; align-items: center; justify-content: space-between; padding: 0 20px; }
+        .el-header h1 { margin: 0; font-size: 20px; }
+        .metric-card { text-align: center; }
+        .metric-label { font-size: 12px; color: #909399; margin-bottom: 8px; }
+        .metric-value { font-size: 24px; font-weight: bold; color: #303133; }
+        .profit { color: #67c23a; }
+        .loss { color: #f56c6c; }
+        .stats-card { height: 100%; }
+        .stats-grid { display: grid; gap: 15px; }
+        .stat-item { text-align: center; padding: 15px; background: #f5f7fa; border-radius: 8px; }
+        .stat-label { font-size: 12px; color: #909399; margin-bottom: 8px; }
+        .stat-value { font-size: 20px; font-weight: bold; color: #303133; }
+        .stat-value.profit { color: #67c23a; }
+        .stat-value.loss { color: #f56c6c; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <el-container>
+            <el-header>
+                <h1>VNPY 交易看板</h1>
+                <div>
+                    <el-tag :type="wsStatus.type">{{ wsStatus.text }}</el-tag>
+                    <span style="margin-left: 10px; font-size: 12px;">{{ lastUpdate }}</span>
+                </div>
+            </el-header>
+            <el-main>
+                <el-tabs v-model="activeTab" type="border-card">
+                    <!-- Tab 1: 交易 -->
+                    <el-tab-pane label="交易" name="trading">
+                        <el-row :gutter="20" style="margin-bottom: 20px;">
+                            <el-col :span="6">
+                                <el-card>
+                                    <div class="metric-label">总资产</div>
+                                    <div class="metric-value">{{ formatMoney(account.balance) }}</div>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="6">
+                                <el-card>
+                                    <div class="metric-label">可用资金</div>
+                                    <div class="metric-value">{{ formatMoney(account.available) }}</div>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="6">
+                                <el-card>
+                                    <div class="metric-label">当日盈亏</div>
+                                    <div class="metric-value" :class="dailyPnl >= 0 ? 'profit' : 'loss'">
+                                        {{ formatMoney(dailyPnl) }}
+                                    </div>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="6">
+                                <el-card>
+                                    <div class="metric-label">持仓市值</div>
+                                    <div class="metric-value">{{ formatMoney(positionValue) }}</div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                        <el-row :gutter="20">
+                            <el-col :span="16">
+                                <el-card>
+                                    <template #header>
+                                        <span>持仓明细</span>
+                                    </template>
+                                    <el-table :data="positions" stripe>
+                                        <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
+                                        <el-table-column prop="direction" label="方向" width="80">
+                                            <template #default="scope">
+                                                <el-tag :type="scope.row.direction === '多' ? 'danger' : 'success'">
+                                                    {{ scope.row.direction }}
+                                                </el-tag>
+                                            </template>
+                                        </el-table-column>
+                                        <el-table-column prop="volume" label="数量" width="100"></el-table-column>
+                                        <el-table-column prop="pnl" label="盈亏">
+                                            <template #default="scope">
+                                                <span :class="scope.row.pnl >= 0 ? 'profit' : 'loss'">
+                                                    {{ formatMoney(scope.row.pnl) }}
+                                                </span>
+                                            </template>
+                                        </el-table-column>
+                                    </el-table>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="8">
+                                <el-card>
+                                    <template #header>
+                                        <span>策略控制</span>
+                                    </template>
+                                    <div v-for="st in strategies" :key="st.name" style="display: flex; justify-content: space-between; align-items: center; padding: 10px 0; border-bottom: 1px solid #ebeef5;">
+                                        <span>{{ st.name }}</span>
+                                        <el-tag :type="st.running ? 'success' : 'info'" size="small">
+                                            {{ st.running ? '运行中' : '已停止' }}
+                                        </el-tag>
+                                    </div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                    </el-tab-pane>
+
+                    <!-- Tab 2: K线图表 -->
+                    <el-tab-pane label="K线图表" name="charts">
+                        <el-row :gutter="20">
+                            <el-col :span="24">
+                                <el-card>
+                                    <template #header>
+                                        <span>K线图表</span>
+                                        <el-select v-model="selectedSymbol" size="small" style="width: 150px; margin-left: 10px;">
+                                            <el-option v-for="symbol in availableSymbols" :key="symbol" :label="symbol" :value="symbol"></el-option>
+                                        </el-select>
+                                    </template>
+                                    <div id="kline-chart" style="height: 400px;"></div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                    </el-tab-pane>
+
+                    <!-- Tab 3: 数据分析 -->
+                    <el-tab-pane label="数据分析" name="analysis">
+                        <el-row :gutter="20">
+                            <el-col :span="8">
+                                <el-card class="stats-card">
+                                    <template #header>
+                                        <span>收益指标</span>
+                                    </template>
+                                    <div class="stats-grid">
+                                        <div class="stat-item">
+                                            <div class="stat-label">总收益率</div>
+                                            <div class="stat-value" :class="stats.total_return >= 0 ? 'profit' : 'loss'">
+                                                {{ stats.total_return }}%
+                                            </div>
+                                        </div>
+                                        <div class="stat-item">
+                                            <div class="stat-label">最大回撤</div>
+                                            <div class="stat-value loss">{{ stats.max_drawdown }}%</div>
+                                        </div>
+                                    </div>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="8">
+                                <el-card class="stats-card">
+                                    <template #header>
+                                        <span>风险指标</span>
+                                    </template>
+                                    <div class="stats-grid">
+                                        <div class="stat-item">
+                                            <div class="stat-label">夏普比率</div>
+                                            <div class="stat-value">{{ stats.sharpe_ratio }}</div>
+                                        </div>
+                                        <div class="stat-item">
+                                            <div class="stat-label">胜率</div>
+                                            <div class="stat-value">{{ stats.win_rate }}%</div>
+                                        </div>
+                                    </div>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="8">
+                                <el-card class="stats-card">
+                                    <template #header>
+                                        <span>交易统计</span>
+                                    </template>
+                                    <div class="stats-grid">
+                                        <div class="stat-item">
+                                            <div class="stat-label">总交易次数</div>
+                                            <div class="stat-value">{{ stats.total_trades }}</div>
+                                        </div>
+                                        <div class="stat-item">
+                                            <div class="stat-label">盈利次数</div>
+                                            <div class="stat-value profit">{{ stats.winning_trades }}</div>
+                                        </div>
+                                    </div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                        <el-row :gutter="20" style="margin-top: 20px;">
+                            <el-col :span="12">
+                                <el-card>
+                                    <template #header>
+                                        <span>盈亏分布</span>
+                                    </template>
+                                    <div id="pnl-chart" style="height: 300px;"></div>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="12">
+                                <el-card>
+                                    <template #header>
+                                        <span>资金曲线</span>
+                                    </template>
+                                    <div id="equity-chart" style="height: 300px;"></div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                    </el-tab-pane>
+                </el-tabs>
+            </el-main>
+        </el-container>
+    </div>
+
+    <script>
+        const { createApp, ref, computed, watch, onMounted } = Vue;
+
+        const app = createApp({
+            setup() {
+                const activeTab = ref('trading');
+                const lastUpdate = ref(new Date().toLocaleTimeString());
+                const wsStatus = ref({ type: 'success', text: '已连接' });
+                const selectedSymbol = ref('000001.SSE');
+                const availableSymbols = ref(['000001.SSE', '000300.SSE']);
+
+                const account = ref({ balance: 1000000, available: 800000, frozen: 200000 });
+                const dailyPnl = ref(15000);
+                const positionValue = ref(200000);
+
+                const positions = ref([
+                    { vt_symbol: '000001.SSE', direction: '多', volume: 1000, pnl: 5000 },
+                    { vt_symbol: '000300.SSE', direction: '空', volume: 500, pnl: -2000 }
+                ]);
+
+                const strategies = ref([
+                    { name: 'XGBExtremaLive', running: true }
+                ]);
+
+                const stats = ref({
+                    total_return: 15.5,
+                    max_drawdown: -8.3,
+                    sharpe_ratio: 1.85,
+                    win_rate: 62.5,
+                    total_trades: 120,
+                    winning_trades: 75,
+                    losing_trades: 45
+                });
+
+                let klineChart = null;
+                let pnlChart = null;
+                let equityChart = null;
+
+                const formatMoney = (val) => {
+                    return '¥' + (val || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 });
+                };
+
+                const initKlineChart = () => {
+                    if (!klineChart) {
+                        klineChart = echarts.init(document.getElementById('kline-chart'));
+                    }
+                    // 示例K线数据
+                    const data = [];
+                    let base = 100;
+                    for (let i = 0; i < 100; i++) {
+                        const open = base + Math.random() * 4 - 2;
+                        const close = open + Math.random() * 4 - 2;
+                        const low = Math.min(open, close) - Math.random();
+                        const high = Math.max(open, close) + Math.random();
+                        data.push([open.toFixed(2), close.toFixed(2), low.toFixed(2), high.toFixed(2)]);
+                        base = close;
+                    }
+
+                    klineChart.setOption({
+                        tooltip: { trigger: 'axis' },
+                        xAxis: { type: 'category', data: data.map((_, i) => i) },
+                        yAxis: { type: 'value', scale: true },
+                        series: [{
+                            type: 'candlestick',
+                            data: data,
+                            itemStyle: { color: '#ef232a', color0: '#14b143' }
+                        }]
+                    });
+                };
+
+                const initStatsCharts = () => {
+                    if (!pnlChart) {
+                        pnlChart = echarts.init(document.getElementById('pnl-chart'));
+                    }
+                    if (!equityChart) {
+                        equityChart = echarts.init(document.getElementById('equity-chart'));
+                    }
+
+                    pnlChart.setOption({
+                        series: [{
+                            type: 'pie',
+                            radius: '50%',
+                            data: [
+                                { value: 75, name: '盈利', itemStyle: { color: '#67c23a' } },
+                                { value: 45, name: '亏损', itemStyle: { color: '#f56c6c' } }
+                            ]
+                        }]
+                    });
+
+                    equityChart.setOption({
+                        xAxis: { type: 'category', data: ['1月', '2月', '3月', '4月', '5月', '6月'] },
+                        yAxis: { type: 'value' },
+                        series: [{ type: 'line', smooth: true, data: [100, 105, 103, 110, 115, 115.5] }]
+                    });
+                };
+
+                watch(activeTab, (newVal) => {
+                    if (newVal === 'charts') {
+                        setTimeout(initKlineChart, 100);
+                    } else if (newVal === 'analysis') {
+                        setTimeout(initStatsCharts, 100);
+                    }
+                });
+
+                onMounted(() => {
+                    // 初始在交易Tab，不需要初始化图表
+                });
+
+                return {
+                    activeTab,
+                    lastUpdate,
+                    wsStatus,
+                    selectedSymbol,
+                    availableSymbols,
+                    account,
+                    dailyPnl,
+                    positionValue,
+                    positions,
+                    strategies,
+                    stats,
+                    formatMoney
+                };
+            }
+        });
+
+        app.use(ElementPlus);
+        app.mount('#app');
+    </script>
+</body>
+</html>
