@@ -169,10 +169,13 @@ class DataManager:
         return {"vt_symbol": data.get("vt_symbol", ""), "last_price": data.get("last_price", 0)}
 
     async def _broadcast(self, message: Dict):
+        """广播消息到所有 WebSocket 连接"""
+        print(f"[DataManager] 广播消息: {message['type']}, WebSocket 连接数: {len(self.websockets)}")
         for ws in self.websockets[:]:
             try:
                 await ws.send_json(message)
-            except Exception:
+            except Exception as e:
+                print(f"[DataManager] WebSocket 发送失败: {e}")
                 self.websockets.remove(ws)
 
     def register_websocket(self, ws):
