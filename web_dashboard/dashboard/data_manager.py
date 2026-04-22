@@ -51,42 +51,115 @@ class DataManager:
         while self._running:
             try:
                 if self.socket:
-                    event_data = await self.socket.recv_json()
+                    # RpcServer 使用 send_pyobj (pickle 序列化)
+                    topic, event_data = await self.socket.recv_pyobj()
                     await self._process_event(event_data)
             except Exception as e:
                 print(f"[DataManager] 接收错误: {e}")
                 await asyncio.sleep(1)
 
-    async def _process_event(self, event_data: Dict):
-        """处理接收到的事件"""
-        event_type = event_data.get("type")
-        data = event_data.get("data")
+    async def _process_event(self, event):
+        """处理接收到的事件
+
+        RpcEngine 发送的是 vnpy.event.Event 对象
+        """
+        event_type = event.type
+        data = event.data
 
         if not event_type or not data:
             return
 
-        if event_type == "EVENT_ACCOUNT":
+        # 忽略定时器和日志事件
+        if event_type in ("eTimer", "eRpcLog"):
+            return
+
+        if event_type == "eAccount":
             self.account = self._format_account(data)
             await self._broadcast({"type": "account", "data": self.account})
-        elif event_type == "EVENT_POSITION":
+        elif event_type == "ePosition":
             position = self._format_position(data)
             self.positions[position["vt_symbol"]] = position
             await self._broadcast({"type": "position", "data": position})
-        elif event_type == "EVENT_TRADE":
+        elif event_type == "eTrade":
             trade = self._format_trade(data)
             self.trades.insert(0, trade)
             if len(self.trades) > 100:
                 self.trades = self.trades[:100]
             await self._broadcast({"type": "trade", "data": trade})
+        elif event_type == "eOrder":
+            order = self._format_order(data)
+            self.orders[order["vt_orderid"]] = order
+            await self._broadcast({"type": "order", "data": order})
+        elif event_type == "eTick":
+            tick = self._format_tick(data)
+            self.ticks[tick["vt_symbol"]] = tick
+            await self._broadcast({"type": "tick", "data": tick})
 
-    def _format_account(self, data: Dict) -> Dict:
-        return {"balance": data.get("balance", 0), "available": data.get("available", 0)}
+    def _format_account(self, data) -> Dict:
+        """格式化账户数据"""
+        # data 可能是 AccountData 对象或字典
+        if hasattr(data, '__dict__'):
+            return {
+                "balance": getattr(data, 'balance', 0),
+                "available": getattr(data, 'available', 0),
+                "frozen": getattr(data, 'frozen', 0),
+                "gateway_name": getattr(data, 'gateway_name', ''),
+            }
+        return {"balance": data.get("balance", 0), "available": data.get("available", 0), "frozen": data.get("frozen", 0)}
 
-    def _format_position(self, data: Dict) -> Dict:
+    def _format_position(self, data) -> Dict:
+        """格式化持仓数据"""
+        if hasattr(data, '__dict__'):
+            return {
+                "vt_symbol": getattr(data, 'vt_symbol', ''),
+                "direction": str(getattr(data, 'direction', '')),
+                "volume": getattr(data, 'volume', 0),
+                "price": getattr(data, 'price', 0),
+                "pnl": getattr(data, 'pnl', 0),
+                "gateway_name": getattr(data, 'gateway_name', ''),
+            }
         return {"vt_symbol": data.get("vt_symbol", ""), "volume": data.get("volume", 0)}
 
-    def _format_trade(self, data: Dict) -> Dict:
+    def _format_trade(self, data) -> Dict:
+        """格式化成交数据"""
+        if hasattr(data, '__dict__'):
+            return {
+                "vt_symbol": getattr(data, 'vt_symbol', ''),
+                "direction": str(getattr(data, 'direction', '')),
+                "price": getattr(data, 'price', 0),
+                "volume": getattr(data, 'volume', 0),
+                "time": getattr(data, 'time', ''),
+                "gateway_name": getattr(data, 'gateway_name', ''),
+            }
         return {"vt_symbol": data.get("vt_symbol", ""), "price": data.get("price", 0)}
+
+    def _format_order(self, data) -> Dict:
+        """格式化订单数据"""
+        if hasattr(data, '__dict__'):
+            return {
+                "vt_orderid": getattr(data, 'vt_orderid', ''),
+                "vt_symbol": getattr(data, 'vt_symbol', ''),
+                "direction": str(getattr(data, 'direction', '')),
+                "price": getattr(data, 'price', 0),
+                "volume": getattr(data, 'volume', 0),
+                "traded": getattr(data, 'traded', 0),
+                "status": str(getattr(data, 'status', '')),
+            }
+        return {"vt_orderid": data.get("vt_orderid", ""), "vt_symbol": data.get("vt_symbol", "")}
+
+    def _format_tick(self, data) -> Dict:
+        """格式化行情数据"""
+        if hasattr(data, '__dict__'):
+            return {
+                "vt_symbol": getattr(data, 'vt_symbol', ''),
+                "last_price": getattr(data, 'last_price', 0),
+                "volume": getattr(data, 'volume', 0),
+                "open_price": getattr(data, 'open_price', 0),
+                "high_price": getattr(data, 'high_price', 0),
+                "low_price": getattr(data, 'low_price', 0),
+                "datetime": str(getattr(data, 'datetime', '')),
+            }
+        return {"vt_symbol": data.get("vt_symbol", ""), "last_price": data.get("last_price", 0)}
 
     async def _broadcast(self, message: Dict):
         for ws in self.websockets[:]:
