@@ -98,15 +98,18 @@ class RpcWebEngine(WebEngine):
             连接成功返回True
         """
         try:
-            from vnpy_rpcservice import RpcClient
+            from vnpy.rpc import RpcClient
 
             self.rpc_client = RpcClient()
-            self.rpc_client.connect(
+            self.rpc_client.subscribe_topic("")
+            self.rpc_client.start(
                 req_address=self.req_address,
-                sub_address=self.sub_address,
-                main_engine=self.main_engine,
-                event_engine=self.event_engine
+                sub_address=self.sub_address
             )
+
+            # 设置事件回调
+            self.rpc_client.callback = self._on_rpc_event
+
             self._connected = True
             print(f"✓ RPC连接成功: {self.req_address}")
 
@@ -121,51 +124,89 @@ class RpcWebEngine(WebEngine):
             print(f"✗ RPC连接失败: {e}")
             return False
 
+    def _on_rpc_event(self, topic: str, event: Event) -> None:
+        """处理RPC推送的事件
+
+        Parameters
+        ----------
+        topic : str
+            事件主题
+        event : Event
+            事件对象
+        """
+        if event is None:
+            return
+
+        # 将事件放入本地事件引擎
+        self.event_engine.put(event)
+
+        # 更新本地数据缓存
+        data = event.data
+        if hasattr(data, 'vt_symbol'):
+            if isinstance(data, TickData):
+                self.ticks[data.vt_symbol] = data
+            elif isinstance(data, TradeData):
+                self.trades[data.vt_tradeid] = data
+            elif isinstance(data, OrderData):
+                self.orders[data.vt_orderid] = data
+            elif isinstance(data, PositionData):
+                self.positions[data.vt_symbol] = data
+        elif isinstance(data, AccountData):
+            self.account = data
+
     def disconnect_rpc(self) -> None:
         """断开RPC连接"""
         if self.rpc_client:
             self.rpc_client.stop()
+            self.rpc_client.join()
             self._connected = False
             print("RPC连接已断开")
 
     def _get_account_data(self) -> dict:
         """通过RPC获取账户数据"""
-        if not self._connected:
+        if not self._connected or not self.rpc_client:
             return {"balance": 0, "available": 0, "frozen": 0}
 
-        accounts = self.main_engine.get_all_accounts()
-        if accounts:
-            acc = accounts[0]
-            return {
-                "balance": acc.balance,
-                "available": acc.available,
-                "frozen": acc.frozen
-            }
+        try:
+            accounts = self.rpc_client.get_all_accounts()
+            if accounts:
+                acc = accounts[0]
+                return {
+                    "balance": acc.balance,
+                    "available": acc.available,
+                    "frozen": acc.frozen
+                }
+        except Exception as e:
+            print(f"获取账户数据失败: {e}")
         return {"balance": 0, "available": 0, "frozen": 0}
 
     def _get_position_data(self) -> list:
         """通过RPC获取持仓数据"""
-        if not self._connected:
+        if not self._connected or not self.rpc_client:
             return []
 
-        positions = []
-        for pos in self.main_engine.get_all_positions():
-            tick = self.ticks.get(f"{pos.symbol}.{pos.exchange.value}")
-            last_price = tick.last_price if tick else pos.price
+        try:
+            positions = []
+            for pos in self.rpc_client.get_all_positions():
+                tick = self.ticks.get(f"{pos.symbol}.{pos.exchange.value}")
+                last_price = tick.last_price if tick else pos.price
 
-            pnl = (last_price - pos.price) * pos.volume
-            pnl_pct = (last_price / pos.price - 1) * 100 if pos.price else 0
+                pnl = (last_price - pos.price) * pos.volume
+                pnl_pct = (last_price / pos.price - 1) * 100 if pos.price else 0
 
-            positions.append({
-                "vt_symbol": f"{pos.symbol}.{pos.exchange.value}",
-                "direction": pos.direction.value,
-                "volume": pos.volume,
-                "avg_price": round(pos.price, 2),
-                "last_price": round(last_price, 2),
-                "pnl": round(pnl, 2),
-                "pnl_pct": round(pnl_pct, 2)
-            })
-        return positions
+                positions.append({
+                    "vt_symbol": f"{pos.symbol}.{pos.exchange.value}",
+                    "direction": pos.direction.value,
+                    "volume": pos.volume,
+                    "avg_price": round(pos.price, 2),
+                    "last_price": round(last_price, 2),
+                    "pnl": round(pnl, 2),
+                    "pnl_pct": round(pnl_pct, 2)
+                })
+            return positions
+        except Exception as e:
+            print(f"获取持仓数据失败: {e}")
+            return []
 
     def _get_trade_data(self) -> list:
         """通过RPC获取成交数据"""
@@ -227,8 +268,7 @@ class RpcWebEngine(WebEngine):
             )
 
             # 通过RPC查询历史数据
-            # RpcClient会将请求发送到远程服务器的MainEngine.query_history
-            bars = self.main_engine.query_history(req, "")
+            bars = self.rpc_client.query_history(req, "")
 
             if not bars:
                 print(f"RPC查询历史数据为空: {vt_symbol}")
