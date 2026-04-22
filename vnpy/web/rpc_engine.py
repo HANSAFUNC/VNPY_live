@@ -27,7 +27,10 @@ class RpcWebEngine(WebEngine):
         main_engine: MainEngine,
         event_engine: EventEngine,
         req_address: str = "tcp://localhost:2014",
-        sub_address: str = "tcp://localhost:2015"
+        sub_address: str = "tcp://localhost:2015",
+        mock_capital: float = 1_000_000.0,
+        mock_commission_rate: float = 0.0003,
+        mock_tax_rate: float = 0.001,
     ) -> None:
         """初始化RPC Web引擎
 
@@ -41,6 +44,12 @@ class RpcWebEngine(WebEngine):
             RPC服务端请求地址
         sub_address : str
             RPC服务端推送地址
+        mock_capital : float
+            模拟盘起始资金（默认100万）
+        mock_commission_rate : float
+            模拟盘手续费率（默认万分之3）
+        mock_tax_rate : float
+            模拟盘印花税率（默认千分之1）
         """
         # 调用BaseEngine初始化（跳过WebEngine的__init__）
         BaseEngine.__init__(self, main_engine, event_engine, self.engine_name)
@@ -49,6 +58,15 @@ class RpcWebEngine(WebEngine):
         self.sub_address = sub_address
         self.rpc_client: Optional = None
         self._connected = False
+
+        # 模拟盘配置
+        self.mock_capital = mock_capital
+        self.mock_commission_rate = mock_commission_rate
+        self.mock_tax_rate = mock_tax_rate
+        self._mock_account: Optional[dict] = None
+
+        # LiveAlphaEngine 引用（用于获取模拟盘数据）
+        self.live_engine: Optional = None
 
         # 从父类复制必要的初始化
         from .engine import ConnectionManager
@@ -163,22 +181,31 @@ class RpcWebEngine(WebEngine):
             print("RPC连接已断开")
 
     def _get_account_data(self) -> dict:
-        """通过RPC获取账户数据，失败时返回模拟数据"""
-        if not self._connected or not self.rpc_client:
-            return self._get_mock_account_data()
+        """获取账户数据（优先从 LiveAlphaEngine 获取模拟盘数据）"""
+        # 1. 如果绑定了 LiveAlphaEngine 且有数据，直接返回
+        if self.live_engine and self.live_engine.account:
+            acc = self.live_engine.account
+            return {
+                "balance": acc.balance,
+                "available": acc.available,
+                "frozen": acc.frozen
+            }
 
-        try:
-            accounts = self.rpc_client.get_all_accounts()
-            if accounts:
-                acc = accounts[0]
-                return {
-                    "balance": acc.balance,
-                    "available": acc.available,
-                    "frozen": acc.frozen
-                }
-        except Exception:
-            # RPC未就绪或没有账户数据，使用模拟数据
-            pass
+        # 2. 如果 RPC 已连接，尝试从远程获取
+        if self._connected and self.rpc_client:
+            try:
+                accounts = self.rpc_client.get_all_accounts()
+                if accounts:
+                    acc = accounts[0]
+                    return {
+                        "balance": acc.balance,
+                        "available": acc.available,
+                        "frozen": acc.frozen
+                    }
+            except Exception:
+                pass
+
+        # 3. 返回配置的模拟数据
         return self._get_mock_account_data()
 
     def _get_mock_account_data(self) -> dict:
@@ -190,25 +217,19 @@ class RpcWebEngine(WebEngine):
         }
 
     def _get_position_data(self) -> list:
-        """通过RPC获取持仓数据，失败时返回空列表"""
-        if not self._connected or not self.rpc_client:
-            return []
-
-        try:
+        """获取持仓数据（优先从 LiveAlphaEngine 获取模拟盘数据）"""
+        # 1. 如果绑定了 LiveAlphaEngine 且有数据，直接返回
+        if self.live_engine and self.live_engine.positions:
             positions = []
-            rpc_positions = self.rpc_client.get_all_positions()
-            if not rpc_positions:
-                return []
-
-            for pos in rpc_positions:
-                tick = self.ticks.get(f"{pos.symbol}.{pos.exchange.value}")
+            for vt_symbol, pos in self.live_engine.positions.items():
+                tick = self.ticks.get(vt_symbol)
                 last_price = tick.last_price if tick else pos.price
 
                 pnl = (last_price - pos.price) * pos.volume
                 pnl_pct = (last_price / pos.price - 1) * 100 if pos.price else 0
 
                 positions.append({
-                    "vt_symbol": f"{pos.symbol}.{pos.exchange.value}",
+                    "vt_symbol": vt_symbol,
                     "direction": pos.direction.value,
                     "volume": pos.volume,
                     "avg_price": round(pos.price, 2),
@@ -217,26 +238,67 @@ class RpcWebEngine(WebEngine):
                     "pnl_pct": round(pnl_pct, 2)
                 })
             return positions
-        except Exception:
-            # RPC未就绪或没有持仓数据，返回空列表
-            return []
+
+        # 2. 如果 RPC 已连接，尝试从远程获取
+        if self._connected and self.rpc_client:
+            try:
+                positions = []
+                rpc_positions = self.rpc_client.get_all_positions()
+                if rpc_positions:
+                    for pos in rpc_positions:
+                        tick = self.ticks.get(f"{pos.symbol}.{pos.exchange.value}")
+                        last_price = tick.last_price if tick else pos.price
+
+                        pnl = (last_price - pos.price) * pos.volume
+                        pnl_pct = (last_price / pos.price - 1) * 100 if pos.price else 0
+
+                        positions.append({
+                            "vt_symbol": f"{pos.symbol}.{pos.exchange.value}",
+                            "direction": pos.direction.value,
+                            "volume": pos.volume,
+                            "avg_price": round(pos.price, 2),
+                            "last_price": round(last_price, 2),
+                            "pnl": round(pnl, 2),
+                            "pnl_pct": round(pnl_pct, 2)
+                        })
+                return positions
+            except Exception:
+                pass
+
+        # 3. 返回空列表
+        return []
 
     def _get_trade_data(self) -> list:
-        """通过RPC获取成交数据"""
-        if not self._connected:
-            return []
-
-        from datetime import datetime
-
+        """获取成交数据（优先从 LiveAlphaEngine 获取模拟盘数据）"""
         trades = []
-        for trade in sorted(self.trades.values(), key=lambda x: x.datetime or datetime.min, reverse=True)[:50]:
-            trades.append({
-                "vt_symbol": f"{trade.symbol}.{trade.exchange.value}",
-                "direction": trade.direction.value,
-                "price": trade.price,
-                "volume": trade.volume,
-                "time": trade.datetime.strftime("%H:%M:%S") if trade.datetime else "--"
-            })
+
+        # 1. 如果绑定了 LiveAlphaEngine 且有数据，直接返回
+        if self.live_engine:
+            from datetime import datetime
+            # 从 LiveAlphaEngine 获取成交记录
+            if hasattr(self.live_engine, 'trades'):
+                for trade in sorted(self.live_engine.trades.values(), key=lambda x: x.datetime or datetime.min, reverse=True)[:50]:
+                    trades.append({
+                        "vt_symbol": f"{trade.symbol}.{trade.exchange.value}",
+                        "direction": trade.direction.value,
+                        "price": trade.price,
+                        "volume": trade.volume,
+                        "time": trade.datetime.strftime("%H:%M:%S") if trade.datetime else "--"
+                    })
+                return trades
+
+        # 2. 使用本地缓存的成交数据（从RPC事件接收）
+        if self._connected:
+            from datetime import datetime
+            for trade in sorted(self.trades.values(), key=lambda x: x.datetime or datetime.min, reverse=True)[:50]:
+                trades.append({
+                    "vt_symbol": f"{trade.symbol}.{trade.exchange.value}",
+                    "direction": trade.direction.value,
+                    "price": trade.price,
+                    "volume": trade.volume,
+                    "time": trade.datetime.strftime("%H:%M:%S") if trade.datetime else "--"
+                })
+
         return trades
 
     def _load_historical_candles(self, vt_symbol: str, days: int = 60) -> list:

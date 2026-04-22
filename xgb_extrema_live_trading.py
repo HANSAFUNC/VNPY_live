@@ -251,11 +251,15 @@ class LiveTrader:
                         main_engine=self.main_engine,
                         event_engine=self.event_engine,
                         req_address=self.rpc_req,
-                        sub_address=self.rpc_sub
+                        sub_address=self.rpc_sub,
+                        mock_capital=self.capital,
                     )
+                    # 绑定 LiveAlphaEngine（用于获取模拟盘数据）
+                    self.web_engine.live_engine = self.live_engine
+
                     # 连接RPC
                     if not self.web_engine.connect_rpc():
-                        logger.warning("\n⚠ RPC连接失败，Web看板可能无法获取数据")
+                        logger.warning("\n⚠ RPC连接失败，Web看板将使用本地模拟数据")
 
                     # 启动Web服务（阻塞模式在单独线程）
                     import threading
@@ -453,7 +457,7 @@ def main():
     parser.add_argument('--capital', type=float, default=1_000_000, help='初始资金（默认100万）')
     parser.add_argument('--web', action='store_true', default=True, help='启用 Web 看板')
     parser.add_argument('--no-web', action='store_true', help='禁用 Web 看板')
-    parser.add_argument('--rpc', action='store_true', help='使用RPC模式连接远程交易服务器')
+    parser.add_argument('--rpc', action='store_true', default=True, help='使用RPC模式连接远程交易服务器')
     parser.add_argument('--rpc-req', default='tcp://localhost:2014', help='RPC请求地址')
     parser.add_argument('--rpc-sub', default='tcp://localhost:2015', help='RPC推送地址')
     parser.add_argument('--web-host', default='0.0.0.0', help='Web服务监听地址')
