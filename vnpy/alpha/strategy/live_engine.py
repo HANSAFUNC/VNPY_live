@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
 import polars as pl
 from vnpy.event import Event, EventEngine
-from vnpy.trader.engine import MainEngine
+from vnpy.trader.engine import MainEngine, BaseEngine
 from vnpy.trader.event import EVENT_TICK, EVENT_TRADE, EVENT_ORDER, EVENT_POSITION, EVENT_ACCOUNT
 from vnpy.trader.object import (
     BarData, TickData, TradeData, OrderData, PositionData, AccountData,
@@ -29,7 +29,7 @@ from vnpy.alpha.strategy.template import AlphaStrategy
 from vnpy.alpha.logger import logger
 
 
-class TradeEngine:
+class TradeEngine(BaseEngine):
     """交易引擎
 
     支持两种模式：
@@ -39,6 +39,7 @@ class TradeEngine:
     与 BacktestingEngine 保持接口兼容，方便策略无缝切换。
     """
 
+    engine_name: str = "TradeEngine"
     gateway_name: str = "LIVE"
 
     def __init__(
@@ -64,6 +65,8 @@ class TradeEngine:
         paper_trading : bool
             是否为模拟盘模式（使用真实行情，本地模拟成交）
         """
+        super().__init__(main_engine, event_engine, self.engine_name)
+
         self.main_engine: MainEngine = main_engine
         self.event_engine: EventEngine = event_engine
         self.lab: AlphaLab = lab

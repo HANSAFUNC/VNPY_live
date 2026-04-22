@@ -173,14 +173,18 @@ class LiveTrader:
         logger.info(f"设置交易策略 ({mode_str}模式)")
         logger.info("=" * 60)
 
-        # 创建实盘引擎
-        self.live_engine = TradeEngine(
+        # 创建 TradeEngine 并添加到 MainEngine
+        trade_engine = TradeEngine(
             main_engine=self.main_engine,
             event_engine=self.event_engine,
             lab=self.lab,
             gateway_name=self.gateway_name,
             paper_trading=self.paper_trading
         )
+
+        # 注册到 MainEngine
+        self.main_engine.add_engine(trade_engine)
+        self.live_engine = trade_engine
 
         # 策略参数
         strategy_setting = {
@@ -249,11 +253,17 @@ class LiveTrader:
         try:
             from vnpy_rpcservice import RpcEngine
 
-            self.rpc_engine = RpcEngine(
+            # 创建 RpcEngine 并添加到 MainEngine
+            rpc_engine = RpcEngine(
                 main_engine=self.main_engine,
                 event_engine=self.event_engine
             )
 
+            # 注册到 MainEngine
+            self.main_engine.add_engine(rpc_engine)
+            self.rpc_engine = rpc_engine
+
+            # 启动 RPC 服务
             self.rpc_engine.start(
                 rep_address="tcp://*:2014",
                 pub_address="tcp://*:2015"
