@@ -53,6 +53,11 @@ class DataManager:
                 if self.socket:
                     # RpcServer 使用 send_pyobj (pickle 序列化)
                     topic, event_data = await self.socket.recv_pyobj()
+
+                    # 跳过心跳消息（topic 为 heartbeat 或数据不是 Event 对象）
+                    if topic == "heartbeat" or not hasattr(event_data, 'type'):
+                        continue
+
                     await self._process_event(event_data)
             except Exception as e:
                 print(f"[DataManager] 接收错误: {e}")
