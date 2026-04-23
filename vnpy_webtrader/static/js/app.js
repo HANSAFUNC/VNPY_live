@@ -1,12 +1,13 @@
-const { createApp, ref, reactive, computed } = Vue;
+const { createApp, ref, reactive, computed, shallowRef } = Vue;
 
 const app = createApp({
     setup() {
-        // 认证状态
         const isLoggedIn = ref(false);
         const token = ref('');
         const loginLoading = ref(false);
         const loginError = ref('');
+        const UserIcon = shallowRef(ElementPlusIconsVue.User);
+        const LockIcon = shallowRef(ElementPlusIconsVue.Lock);
 
         // 登录表单
         const loginForm = reactive({
@@ -28,6 +29,19 @@ const app = createApp({
         const trades = ref([]);
         const orders = ref([]);
         const lastUpdate = ref('--');
+
+        // UI 状态
+        const activeTab = ref('trading');
+
+        // 策略
+        const strategies = ref([
+            { name: 'XGBExtremaLive', running: true }
+        ]);
+
+        // 计算属性
+        const positionValue = computed(() => {
+            return positions.value.reduce((sum, p) => sum + (p.volume * (p.last_price || p.price || 0)), 0);
+        });
 
         // 登录处理器
         const handleLogin = async () => {
@@ -57,10 +71,7 @@ const app = createApp({
                 token.value = data.access_token;
                 isLoggedIn.value = true;
 
-                // 将令牌存储在 localStorage 中，以便页面刷新后使用
                 localStorage.setItem('vnpy_token', token.value);
-
-                // 登录后连接 WebSocket
                 connectWebSocket();
 
             } catch (error) {
@@ -78,6 +89,21 @@ const app = createApp({
                 isLoggedIn.value = true;
                 connectWebSocket();
             }
+        };
+
+        // 退出登录
+        const logout = () => {
+            localStorage.removeItem('vnpy_token');
+            if (ws.value) {
+                ws.value.close();
+                ws.value = null;
+            }
+            token.value = '';
+            isLoggedIn.value = false;
+            wsConnected.value = false;
+            loginForm.username = '';
+            loginForm.password = '';
+            loginError.value = '';
         };
 
         // 登录后连接 WebSocket
@@ -106,7 +132,6 @@ const app = createApp({
             ws.value.onclose = () => {
                 console.log('WebSocket 已断开');
                 wsConnected.value = false;
-                // 5 秒后自动重连
                 setTimeout(() => {
                     if (isLoggedIn.value) connectWebSocket();
                 }, 5000);
@@ -122,7 +147,6 @@ const app = createApp({
             const { topic, data } = message;
             lastUpdate.value = new Date().toLocaleTimeString();
 
-            // 将主题映射到数据类型
             switch (topic) {
                 case 'eAccount.':
                     account.value = { ...account.value, ...data };
@@ -138,7 +162,6 @@ const app = createApp({
                     updateOrder(data);
                     break;
                 case 'eTick.':
-                    // 存储 tick 数据用于图表
                     break;
                 default:
                     console.log('未知主题：', topic, data);
@@ -165,6 +188,17 @@ const app = createApp({
             }
         };
 
+        // 格式化辅助函数
+        const formatMoney = (val) => {
+            if (val === undefined || val === null) return '¥0.00';
+            return '¥' + Number(val).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+
+        // 策略开关
+        const toggleStrategy = (s) => {
+            console.log('切换策略：', s.name, s.running);
+        };
+
         // 初始化
         checkStoredToken();
 
@@ -175,16 +209,27 @@ const app = createApp({
             loginLoading,
             loginError,
             handleLogin,
+            logout,
+            UserIcon,
+            LockIcon,
             wsConnected,
             wsStatus,
             account,
             positions,
             trades,
             orders,
-            lastUpdate
+            lastUpdate,
+            activeTab,
+            strategies,
+            positionValue,
+            formatMoney,
+            toggleStrategy
         };
     }
 });
 
 app.use(ElementPlus);
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+    app.component(key, component);
+}
 app.mount('#app');

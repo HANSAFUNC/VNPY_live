@@ -9,51 +9,180 @@
 </head>
 <body>
     <div id="app">
-        <!-- 登录视图 -->
         <div v-if="!isLoggedIn" class="login-container">
-            <el-card class="login-card">
-                <h2>VNPY WebTrader</h2>
-                <el-form :model="loginForm" @submit.prevent="handleLogin">
-                    <el-form-item>
+            <div class="login-card">
+                <div class="logo">
+                    <h2>VeighNa WebTrader</h2>
+                    <p>Quantitative Trading Dashboard</p>
+                </div>
+
+                <el-alert
+                    v-if="loginError"
+                    :title="loginError"
+                    type="error"
+                    show-icon
+                    :closable="true"
+                    @close="loginError = ''"
+                    style="margin-bottom: 20px"
+                />
+
+                <el-form :model="loginForm" @submit.prevent="handleLogin" label-position="top">
+                    <el-form-item label="Username">
                         <el-input
                             v-model="loginForm.username"
-                            placeholder="用户名"
-                            prefix-icon="User"
+                            placeholder="Enter username"
+                            :prefix-icon="UserIcon"
+                            @keyup.enter="handleLogin"
                         />
                     </el-form-item>
-                    <el-form-item>
+                    <el-form-item label="Password">
                         <el-input
                             v-model="loginForm.password"
                             type="password"
-                            placeholder="密码"
-                            prefix-icon="Lock"
+                            placeholder="Enter password"
+                            :prefix-icon="LockIcon"
+                            show-password
+                            @keyup.enter="handleLogin"
                         />
                     </el-form-item>
                     <el-form-item>
                         <el-button
                             type="primary"
-                            @click="handleLogin"
                             :loading="loginLoading"
-                            style="width: 100%"
+                            @click="handleLogin"
                         >
-                            登录
+                            {{ loginLoading ? 'Logging in...' : 'Login' }}
                         </el-button>
                     </el-form-item>
                 </el-form>
-                <el-alert
-                    v-if="loginError"
-                    :title="loginError"
-                    type="error"
-                    closable
-                    @close="loginError = ''"
-                />
-            </el-card>
+            </div>
         </div>
 
         <!-- 看板视图 -->
         <div v-else class="dashboard-container">
-            <h1>Dashboard</h1>
-            <p>Token: {{ token }}</p>
+            <!-- 页眉 -->
+            <el-header class="dashboard-header">
+                <h1>VNPY 交易看板</h1>
+                <div class="header-right">
+                    <span class="update-time">最后更新：{{ lastUpdate }}</span>
+                    <el-tag :type="wsStatus.type" effect="dark">
+                        {{ wsStatus.text }}
+                    </el-tag>
+                    <el-button size="small" @click="handleLogout">退出</el-button>
+                </div>
+            </el-header>
+
+            <!-- 主内容区 -->
+            <el-main>
+                <el-tabs v-model="activeTab" type="border-card">
+                    <!-- 标签 1：交易 -->
+                    <el-tab-pane label="交易" name="trading">
+                        <div v-if="activeTab === 'trading'">
+                            <!-- 账户概览 -->
+                            <el-row :gutter="20" class="overview-row">
+                                <el-col :span="6">
+                                    <el-card>
+                                        <div class="metric">
+                                            <div class="metric-label">总资产</div>
+                                            <div class="metric-value">{{ formatMoney(account.balance) }}</div>
+                                        </div>
+                                    </el-card>
+                                </el-col>
+                                <el-col :span="6">
+                                    <el-card>
+                                        <div class="metric">
+                                            <div class="metric-label">可用资金</div>
+                                            <div class="metric-value">{{ formatMoney(account.available) }}</div>
+                                        </div>
+                                    </el-card>
+                                </el-col>
+                                <el-col :span="6">
+                                    <el-card>
+                                        <div class="metric">
+                                            <div class="metric-label">冻结资金</div>
+                                            <div class="metric-value">{{ formatMoney(account.frozen) }}</div>
+                                        </div>
+                                    </el-card>
+                                </el-col>
+                                <el-col :span="6">
+                                    <el-card>
+                                        <div class="metric">
+                                            <div class="metric-label">持仓市值</div>
+                                            <div class="metric-value">{{ formatMoney(positionValue) }}</div>
+                                        </div>
+                                    </el-card>
+                                </el-col>
+                            </el-row>
+
+                            <!-- 持仓和成交 -->
+                            <el-row :gutter="20" class="content-row">
+                                <el-col :span="16">
+                                    <el-card title="持仓明细">
+                                        <el-table :data="positions" size="small" stripe>
+                                            <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
+                                            <el-table-column prop="direction" label="方向" width="80">
+                                                <template #default="{ row }">
+                                                    <el-tag :type="row.direction === '多' ? 'danger' : 'success'" size="small">
+                                                        {{ row.direction }}
+                                                    </el-tag>
+                                                </template>
+                                            </el-table-column>
+                                            <el-table-column prop="volume" label="数量" width="100"></el-table-column>
+                                            <el-table-column prop="price" label="均价">
+                                                <template #default="{ row }">{{ row.price?.toFixed(2) }}</template>
+                                            </el-table-column>
+                                            <el-table-column prop="last_price" label="现价">
+                                                <template #default="{ row }">{{ row.last_price?.toFixed(2) }}</template>
+                                            </el-table-column>
+                                            <el-table-column prop="pnl" label="盈亏">
+                                                <template #default="{ row }">
+                                                    <span :class="row.pnl >= 0 ? 'profit' : 'loss'">
+                                                        {{ formatMoney(row.pnl) }}
+                                                    </span>
+                                                </template>
+                                            </el-table-column>
+                                        </el-table>
+                                    </el-card>
+
+                                    <el-card title="最近成交" style="margin-top: 20px;">
+                                        <el-table :data="trades.slice(0, 10)" size="small" stripe>
+                                            <el-table-column prop="time" label="时间" width="100"></el-table-column>
+                                            <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
+                                            <el-table-column prop="direction" label="方向" width="80">
+                                                <template #default="{ row }">
+                                                    <el-tag :type="row.direction === '多' ? 'danger' : 'success'" size="small">
+                                                        {{ row.direction }}
+                                                    </el-tag>
+                                                </template>
+                                            </el-table-column>
+                                            <el-table-column prop="volume" label="数量" width="80"></el-table-column>
+                                            <el-table-column prop="price" label="价格">
+                                                <template #default="{ row }">{{ row.price?.toFixed(2) }}</template>
+                                            </el-table-column>
+                                        </el-table>
+                                    </el-card>
+                                </el-col>
+
+                                <el-col :span="8">
+                                    <el-card title="策略控制">
+                                        <div class="strategy-list">
+                                            <div v-for="s in strategies" :key="s.name" class="strategy-item">
+                                                <span>{{ s.name }}</span>
+                                                <el-switch v-model="s.running" @change="toggleStrategy(s)"></el-switch>
+                                            </div>
+                                        </div>
+                                    </el-card>
+                                </el-col>
+                            </el-row>
+                        </div>
+                    </el-tab-pane>
+
+                    <!-- 占位标签 -->
+                    <el-tab-pane label="股票池" name="pool">股票池内容</el-tab-pane>
+                    <el-tab-pane label="K线图表" name="charts">K线图表内容</el-tab-pane>
+                    <el-tab-pane label="分析" name="analysis">分析内容</el-tab-pane>
+                </el-tabs>
+            </el-main>
         </div>
     </div>
 

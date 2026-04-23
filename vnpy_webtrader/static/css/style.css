@@ -99,3 +99,81 @@ body {
   font-size: 16px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
 }
+
+/* 看板 */
+.dashboard-container {
+    min-height: 100vh;
+}
+
+.dashboard-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 20px;
+    height: 60px;
+}
+
+.dashboard-header h1 {
+    font-size: 20px;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.update-time {
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+.overview-row {
+    margin-bottom: 20px;
+}
+
+.metric {
+    text-align: center;
+}
+
+.metric-label {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 10px;
+}
+
+.metric-value {
+    font-size: 24px;
+    font-weight: 600;
+    color: #333;
+}
+
+.content-row {
+    margin-top: 20px;
+}
+
+.profit {
+    color: #f56c6c;
+}
+
+.loss {
+    color: #67c23a;
+}
+
+.strategy-list {
+    max-height: 300px;
+}
+
+.strategy-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid #ebeef5;
+}
+
+.strategy-item:last-child {
+    border-bottom: none;
+}
