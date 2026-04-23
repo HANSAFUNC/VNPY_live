@@ -261,8 +261,37 @@
                         </el-card>
                     </el-tab-pane>
 
-                    <!-- 占位标签 -->
-                    <el-tab-pane label="分析" name="analysis">分析内容</el-tab-pane>
+                    <!-- 标签 4：分析 -->
+                    <el-tab-pane label="分析" name="analysis">
+                        <el-row :gutter="20">
+                            <el-col :span="12">
+                                <el-card title="盈亏分布">
+                                    <div id="pnl-chart" style="width: 100%; height: 300px;"></div>
+                                </el-card>
+                            </el-col>
+                            <el-col :span="12">
+                                <el-card title="资金曲线">
+                                    <div id="equity-chart" style="width: 100%; height: 300px;"></div>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                        <el-row :gutter="20" style="margin-top: 20px;">
+                            <el-col :span="24">
+                                <el-card title="统计数据">
+                                    <el-row :gutter="20">
+                                        <el-col :span="4" v-for="(val, key) in stats" :key="key">
+                                            <div class="stat-item">
+                                                <div class="stat-label">{{ key }}</div>
+                                                <div :class="['stat-value', val >= 0 ? 'profit' : 'loss']">
+                                                    {{ typeof val === 'number' ? val.toFixed(2) : val }}
+                                                </div>
+                                            </div>
+                                        </el-col>
+                                    </el-row>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                    </el-tab-pane>
                 </el-tabs>
             </el-main>
         </div>

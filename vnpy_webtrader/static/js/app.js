@@ -51,6 +51,18 @@ const app = createApp({
         const candleData = ref({}); // { symbol: [candles] }
         let klineChart = null;
 
+        // 统计
+        const stats = ref({
+            total_return: 0,
+            annual_return: 0,
+            max_drawdown: 0,
+            sharpe_ratio: 0,
+            win_rate: 0,
+            total_trades: 0,
+            winning_trades: 0,
+            losing_trades: 0
+        });
+
         // 标签激活时初始化图表
         const initChart = () => {
             if (!klineChart) {
@@ -85,13 +97,51 @@ const app = createApp({
             klineChart.setOption(option);
         };
 
+        // 分析图表
+        let pnlChart = null;
+        let equityChart = null;
+
+        const updateAnalysisCharts = () => {
+            if (!pnlChart) {
+                const el = document.getElementById('pnl-chart');
+                if (el) pnlChart = echarts.init(el);
+            }
+            if (!equityChart) {
+                const el = document.getElementById('equity-chart');
+                if (el) equityChart = echarts.init(el);
+            }
+
+            // 盈亏饼图
+            if (pnlChart) {
+                pnlChart.setOption({
+                    tooltip: { trigger: 'item' },
+                    series: [{
+                        type: 'pie',
+                        radius: '50%',
+                        data: [
+                            { value: stats.value.winning_trades, name: '盈利', itemStyle: { color: '#67c23a' } },
+                            { value: stats.value.losing_trades, name: '亏损', itemStyle: { color: '#f56c6c' } }
+                        ]
+                    }]
+                });
+            }
+
+            // 资金曲线折线图（占位）
+            if (equityChart) {
+                equityChart.setOption({
+                    xAxis: { type: 'category', data: ['1月', '2月', '3月', '4月'] },
+                    yAxis: { type: 'value' },
+                    series: [{ type: 'line', data: [100, 105, 103, 110] }]
+                });
+            }
+        };
+
         // 监听标签变化以初始化图表
         watch(activeTab, (val) => {
             if (val === 'charts') {
-                setTimeout(() => {
-                    initChart();
-                    updateChart();
-                }, 100);
+                setTimeout(() => { initChart(); updateChart(); }, 100);
+            } else if (val === 'analysis') {
+                setTimeout(updateAnalysisCharts, 100);
             }
         });
 
@@ -292,6 +342,7 @@ const app = createApp({
             stockPool,
             selectedSymbol,
             availableSymbols,
+            stats,
             positionValue,
             formatMoney,
             toggleStrategy
