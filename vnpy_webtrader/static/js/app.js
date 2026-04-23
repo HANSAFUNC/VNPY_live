@@ -1,4 +1,4 @@
-const { createApp, ref, reactive, computed, watch } = Vue;
+const { createApp, ref, reactive, computed, watch, onMounted, onUnmounted } = Vue;
 
 const app = createApp({
     setup() {
@@ -319,6 +319,21 @@ const app = createApp({
 
         // 初始化
         checkStoredToken();
+
+        // 处理窗口调整大小
+        const handleResize = () => {
+            if (klineChart) klineChart.resize();
+            if (pnlChart) pnlChart.resize();
+            if (equityChart) equityChart.resize();
+        };
+
+        onMounted(() => {
+            window.addEventListener('resize', handleResize);
+        });
+
+        onUnmounted(() => {
+            window.removeEventListener('resize', handleResize);
+        });
 
         return {
             isLoggedIn,
