@@ -1,255 +1,107 @@
-/**
- * VNPY Web Dashboard - Vue3 Application
- */
-
-const { createApp, ref, computed, watch, onMounted, onUnmounted } = Vue;
+const { createApp, ref, reactive, computed, watch, onMounted, onUnmounted } = Vue;
 
 const app = createApp({
     setup() {
-        // ==================== 响应式数据 ====================
-        const ws = ref(null);
-        const wsConnected = ref(false);
-        const lastUpdate = ref('--');
-        const reconnectTimer = ref(null);
+        const isLoggedIn = ref(false);
+        const token = ref('');
+        const loginLoading = ref(false);
+        const loginError = ref('');
+        const UserIcon = shallowRef(ElementPlusIconsVue.User);
+        const LockIcon = shallowRef(ElementPlusIconsVue.Lock);
 
-        // Tab 相关
-        const activeTab = ref('trading');
-        const selectedSymbol = ref('');
-        const availableSymbols = ref([]);
-
-        // 账户数据
-        const account = ref({
-            balance: 0,
-            available: 0,
-            frozen: 0
+        // 登录表单
+        const loginForm = reactive({
+            username: '',
+            password: ''
         });
 
-        // 持仓数据
+        // WebSocket
+        const ws = ref(null);
+        const wsConnected = ref(false);
+        const wsStatus = computed(() => ({
+            text: wsConnected.value ? '已连接' : '未连接',
+            type: wsConnected.value ? 'success' : 'danger'
+        }));
+
+        // 数据存储
+        const account = ref({ balance: 0, available: 0, frozen: 0 });
         const positions = ref([]);
-
-        // 成交数据
         const trades = ref([]);
+        const orders = ref([]);
+        const lastUpdate = ref('--');
 
-        // 策略数据
+        // UI 状态
+        const activeTab = ref('trading');
+
+        // 策略
         const strategies = ref([
             { name: 'XGBExtremaLive', running: true }
         ]);
 
-        // 信号数据
-        const signals = ref([]);
-
         // 股票池
         const stockPool = ref({
-            buy_stocks: [],
-            sell_stocks: [],
+            buy: [],
+            sell: [],
             last_update: ''
         });
 
-        // 统计数据
+        // 图表状态
+        const selectedSymbol = ref('');
+        const availableSymbols = ref([]);
+        const candleData = ref({}); // { symbol: [candles] }
+        let klineChart = null;
+
+        // 统计
         const stats = ref({
             total_return: 0,
             annual_return: 0,
             max_drawdown: 0,
             sharpe_ratio: 0,
             win_rate: 0,
-            profit_factor: 0,
             total_trades: 0,
             winning_trades: 0,
-            losing_trades: 0,
-            avg_profit: 0,
-            avg_loss: 0
+            losing_trades: 0
         });
 
-        // 图表实例
-        let klineChart = null;
-        let pnlChart = null;
-        let equityChart = null;
-
-        // 当日盈亏
-        const dailyPnl = computed(() => {
-            return positions.value.reduce((sum, pos) => sum + (pos.pnl || 0), 0);
-        });
-
-        // 持仓市值
-        const positionValue = computed(() => {
-            return positions.value.reduce((sum, pos) => {
-                return sum + (pos.volume || 0) * (pos.last_price || pos.price || 0);
-            }, 0);
-        });
-
-        // 盈亏样式类
-        const pnlClass = computed(() => {
-            return dailyPnl.value >= 0 ? 'profit' : 'loss';
-        });
-
-        // WebSocket 状态
-        const wsStatus = computed(() => {
-            if (wsConnected.value) {
-                return { type: 'success', text: '已连接' };
-            } else {
-                return { type: 'danger', text: '未连接' };
-            }
-        });
-
-        // ==================== 方法 ====================
-
-        // 连接 WebSocket
-        const connectWebSocket = () => {
-            const wsUrl = `ws://${window.location.host}/ws`;
-            console.log('Connecting to:', wsUrl);
-
-            ws.value = new WebSocket(wsUrl);
-
-            ws.value.onopen = () => {
-                console.log('WebSocket connected');
-                wsConnected.value = true;
-                clearTimeout(reconnectTimer.value);
-            };
-
-            ws.value.onmessage = (event) => {
-                const message = JSON.parse(event.data);
-                handleMessage(message);
-            };
-
-            ws.value.onclose = () => {
-                console.log('WebSocket disconnected');
-                wsConnected.value = false;
-                reconnectTimer.value = setTimeout(() => {
-                    console.log('Reconnecting...');
-                    connectWebSocket();
-                }, 5000);
-            };
-
-            ws.value.onerror = (error) => {
-                console.error('WebSocket error:', error);
-            };
-        };
-
-        // 处理消息
-        const handleMessage = (message) => {
-            const { type, data } = message;
-
-            switch (type) {
-                case 'account':
-                    if (data) {
-                        account.value = { ...account.value, ...data };
-                    }
-                    lastUpdate.value = new Date().toLocaleTimeString();
-                    break;
-
-                case 'position':
-                    // 更新单个持仓
-                    if (data && data.vt_symbol) {
-                        const idx = positions.value.findIndex(p => p.vt_symbol === data.vt_symbol);
-                        if (idx >= 0) {
-                            positions.value[idx] = { ...positions.value[idx], ...data };
-                        } else {
-                            positions.value.push(data);
-                        }
-                    }
-                    lastUpdate.value = new Date().toLocaleTimeString();
-                    break;
-
-                case 'positions':
-                    // 全量更新持仓
-                    if (Array.isArray(data)) {
-                        positions.value = data;
-                    }
-                    lastUpdate.value = new Date().toLocaleTimeString();
-                    break;
-
-                case 'trade':
-                    // 新增成交
-                    if (data) {
-                        trades.value.unshift(data);
-                        if (trades.value.length > 100) {
-                            trades.value = trades.value.slice(0, 100);
-                        }
-                    }
-                    lastUpdate.value = new Date().toLocaleTimeString();
-                    break;
-
-                case 'trades':
-                    // 全量更新成交
-                    if (Array.isArray(data)) {
-                        trades.value = data;
-                    }
-                    lastUpdate.value = new Date().toLocaleTimeString();
-                    break;
-
-                case 'stock_pool':
-                    // 更新股票池
-                    if (data) {
-                        stockPool.value = data;
-                    }
-                    break;
-
-                case 'init':
-                case 'update':
-                    // 全量更新
-                    if (data.account) {
-                        account.value = data.account;
-                    }
-                    if (data.positions) {
-                        positions.value = data.positions;
-                    }
-                    if (data.trades) {
-                        trades.value = data.trades;
-                    }
-                    if (data.strategies) {
-                        strategies.value = data.strategies;
-                    }
-                    if (data.signals) {
-                        signals.value = data.signals;
-                    }
-                    if (data.stock_pool) {
-                        stockPool.value = data.stock_pool;
-                    }
-                    if (data.stats) {
-                        stats.value = data.stats;
-                    }
-                    lastUpdate.value = new Date().toLocaleTimeString();
-                    break;
-
-                default:
-                    console.log('Unknown message type:', type);
-            }
-        };
-
-        // 切换策略
-        const toggleStrategy = (strategy) => {
-            ElMessage.success(`${strategy.name} ${strategy.running ? '启动' : '停止'}`);
-        };
-
-        // 刷新数据
-        const refreshData = () => {
-            ElMessage.success('数据已刷新');
-        };
-
-        // 格式化金额
-        const formatMoney = (value) => {
-            if (value === undefined || value === null) return '¥0.00';
-            return '¥' + Number(value).toLocaleString('zh-CN', {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2
-            });
-        };
-
-        // 格式化成交量
-        const formatVolume = (volume) => {
-            if (!volume) return '--';
-            if (volume >= 10000) {
-                return (volume / 10000).toFixed(2) + '万';
-            }
-            return volume.toString();
-        };
-
-        // 初始化图表
-        const initCharts = () => {
+        // 标签激活时初始化图表
+        const initChart = () => {
             if (!klineChart) {
                 const el = document.getElementById('kline-chart');
                 if (el) klineChart = echarts.init(el);
             }
+        };
+
+        // 用 K 线数据更新图表
+        const updateChart = () => {
+            if (!klineChart || !selectedSymbol.value) return;
+
+            const data = candleData.value[selectedSymbol.value] || [];
+            const dates = data.map(d => d.datetime);
+            const values = data.map(d => [d.open, d.close, d.low, d.high]);
+
+            const option = {
+                title: { text: selectedSymbol.value + ' - K线图', left: 'center' },
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'category', data: dates },
+                yAxis: { type: 'value' },
+                series: [{
+                    type: 'candlestick',
+                    data: values,
+                    itemStyle: {
+                        color: '#ef232a',
+                        color0: '#14b143'
+                    }
+                }]
+            };
+
+            klineChart.setOption(option);
+        };
+
+        // 分析图表
+        let pnlChart = null;
+        let equityChart = null;
+
+        const updateAnalysisCharts = () => {
             if (!pnlChart) {
                 const el = document.getElementById('pnl-chart');
                 if (el) pnlChart = echarts.init(el);
@@ -258,64 +110,217 @@ const app = createApp({
                 const el = document.getElementById('equity-chart');
                 if (el) equityChart = echarts.init(el);
             }
-        };
 
-        // 更新图表
-        const updateCharts = () => {
-            initCharts();
-
-            // 盈亏分布饼图
+            // 盈亏饼图
             if (pnlChart) {
-                const pnlOption = {
+                pnlChart.setOption({
                     tooltip: { trigger: 'item' },
-                    legend: { orient: 'vertical', left: 'left' },
-                    series: [
-                        {
-                            name: '交易分布',
-                            type: 'pie',
-                            radius: '50%',
-                            data: [
-                                { value: stats.value.winning_trades || 0, name: '盈利', itemStyle: { color: '#67c23a' } },
-                                { value: stats.value.losing_trades || 0, name: '亏损', itemStyle: { color: '#f56c6c' } }
-                            ]
-                        }
-                    ]
-                };
-                pnlChart.setOption(pnlOption);
+                    series: [{
+                        type: 'pie',
+                        radius: '50%',
+                        data: [
+                            { value: stats.value.winning_trades, name: '盈利', itemStyle: { color: '#67c23a' } },
+                            { value: stats.value.losing_trades, name: '亏损', itemStyle: { color: '#f56c6c' } }
+                        ]
+                    }]
+                });
             }
 
-            // 资金曲线
+            // 资金曲线折线图（占位）
             if (equityChart) {
-                const equityOption = {
-                    tooltip: { trigger: 'axis' },
-                    xAxis: { type: 'category', data: ['1月', '2月', '3月', '4月', '5月', '6月'] },
+                equityChart.setOption({
+                    xAxis: { type: 'category', data: ['1月', '2月', '3月', '4月'] },
                     yAxis: { type: 'value' },
-                    series: [
-                        {
-                            name: '资金',
-                            type: 'line',
-                            smooth: true,
-                            data: [100, 105, 103, 110, 115, 115.5]
-                        }
-                    ]
-                };
-                equityChart.setOption(equityOption);
+                    series: [{ type: 'line', data: [100, 105, 103, 110] }]
+                });
             }
         };
 
-        // ==================== Watchers ====================
-
-        watch(activeTab, (newVal) => {
-            if (newVal === 'charts' || newVal === 'analysis') {
-                setTimeout(() => {
-                    initCharts();
-                    updateCharts();
-                }, 100);
+        // 监听标签变化以初始化图表
+        watch(activeTab, (val) => {
+            if (val === 'charts') {
+                setTimeout(() => { initChart(); updateChart(); }, 100);
+            } else if (val === 'analysis') {
+                setTimeout(updateAnalysisCharts, 100);
             }
         });
 
-        // ==================== 生命周期 ====================
+        watch(selectedSymbol, () => {
+            updateChart();
+        });
 
+        // 计算属性
+        const positionValue = computed(() => {
+            return positions.value.reduce((sum, p) => sum + (p.volume * (p.last_price || p.price || 0)), 0);
+        });
+
+        // 登录处理器
+        const handleLogin = async () => {
+            if (!loginForm.username || !loginForm.password) {
+                loginError.value = '请输入用户名和密码';
+                return;
+            }
+
+            loginLoading.value = true;
+            loginError.value = '';
+
+            try {
+                const formData = new URLSearchParams();
+                formData.append('username', loginForm.username);
+                formData.append('password', loginForm.password);
+
+                const response = await fetch('/token', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (!response.ok) {
+                    throw new Error('登录失败');
+                }
+
+                const data = await response.json();
+                token.value = data.access_token;
+                isLoggedIn.value = true;
+
+                localStorage.setItem('vnpy_token', token.value);
+                connectWebSocket();
+
+            } catch (error) {
+                loginError.value = error.message || '登录失败，请检查用户名和密码';
+            } finally {
+                loginLoading.value = false;
+            }
+        };
+
+        // 页面加载时检查已有令牌
+        const checkStoredToken = () => {
+            const stored = localStorage.getItem('vnpy_token');
+            if (stored) {
+                token.value = stored;
+                isLoggedIn.value = true;
+                connectWebSocket();
+            }
+        };
+
+        // 退出登录
+        const logout = () => {
+            localStorage.removeItem('vnpy_token');
+            if (ws.value) {
+                ws.value.close();
+                ws.value = null;
+            }
+            token.value = '';
+            isLoggedIn.value = false;
+            wsConnected.value = false;
+            loginForm.username = '';
+            loginForm.password = '';
+            loginError.value = '';
+        };
+
+        // 登录后连接 WebSocket
+        const connectWebSocket = () => {
+            if (!token.value) return;
+
+            const wsUrl = `ws://${window.location.host}/ws/?token=${token.value}`;
+            console.log('正在连接 WebSocket：', wsUrl);
+
+            ws.value = new WebSocket(wsUrl);
+
+            ws.value.onopen = () => {
+                console.log('WebSocket 已连接');
+                wsConnected.value = true;
+            };
+
+            ws.value.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    handleWebSocketMessage(message);
+                } catch (e) {
+                    console.error('解析消息失败：', e);
+                }
+            };
+
+            ws.value.onclose = () => {
+                console.log('WebSocket 已断开');
+                wsConnected.value = false;
+                setTimeout(() => {
+                    if (isLoggedIn.value) connectWebSocket();
+                }, 5000);
+            };
+
+            ws.value.onerror = (error) => {
+                console.error('WebSocket 错误：', error);
+            };
+        };
+
+        // 处理收到的 WebSocket 消息
+        const handleWebSocketMessage = (message) => {
+            const { topic, data } = message;
+            lastUpdate.value = new Date().toLocaleTimeString();
+
+            switch (topic) {
+                case 'eAccount.':
+                    account.value = { ...account.value, ...data };
+                    break;
+                case 'ePosition.':
+                    updatePosition(data);
+                    break;
+                case 'eTrade.':
+                    trades.value.unshift(data);
+                    if (trades.value.length > 100) trades.value = trades.value.slice(0, 100);
+                    break;
+                case 'eOrder.':
+                    updateOrder(data);
+                    break;
+                case 'stock_pool':
+                    stockPool.value = { ...stockPool.value, ...data };
+                    break;
+                case 'eTick.':
+                    // 存储 tick，可更新实时图表
+                    if (data.vt_symbol && !candleData.value[data.vt_symbol]) {
+                        availableSymbols.value = [...new Set([...availableSymbols.value, data.vt_symbol])];
+                    }
+                    break;
+                default:
+                    console.log('未知主题：', topic, data);
+            }
+        };
+
+        // 更新持仓辅助函数
+        const updatePosition = (data) => {
+            const idx = positions.value.findIndex(p => p.vt_symbol === data.vt_symbol);
+            if (idx >= 0) {
+                positions.value[idx] = { ...positions.value[idx], ...data };
+            } else {
+                positions.value.push(data);
+            }
+        };
+
+        // 更新委托辅助函数
+        const updateOrder = (data) => {
+            const idx = orders.value.findIndex(o => o.vt_orderid === data.vt_orderid);
+            if (idx >= 0) {
+                orders.value[idx] = { ...orders.value[idx], ...data };
+            } else {
+                orders.value.push(data);
+            }
+        };
+
+        // 格式化辅助函数
+        const formatMoney = (val) => {
+            if (val === undefined || val === null) return '¥0.00';
+            return '¥' + Number(val).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        };
+
+        // 策略开关
+        const toggleStrategy = (s) => {
+            console.log('切换策略：', s.name, s.running);
+        };
+
+        // 初始化
+        checkStoredToken();
+
+        // 处理窗口调整大小
         const handleResize = () => {
             if (klineChart) klineChart.resize();
             if (pnlChart) pnlChart.resize();
@@ -323,64 +328,45 @@ const app = createApp({
         };
 
         onMounted(() => {
-            connectWebSocket();
-
-            // 监听窗口大小改变
             window.addEventListener('resize', handleResize);
-
-            // 定期发送心跳
-            setInterval(() => {
-                if (wsConnected.value && ws.value) {
-                    ws.value.send(JSON.stringify({ type: 'ping' }));
-                }
-            }, 30000);
         });
 
         onUnmounted(() => {
-            if (ws.value) {
-                ws.value.close();
-            }
-            clearTimeout(reconnectTimer.value);
             window.removeEventListener('resize', handleResize);
-
-            // 销毁图表实例
-            if (klineChart) { klineChart.dispose(); klineChart = null; }
-            if (pnlChart) { pnlChart.dispose(); pnlChart = null; }
-            if (equityChart) { equityChart.dispose(); equityChart = null; }
         });
 
-        // ==================== 返回 ====================
         return {
-            // 数据
+            isLoggedIn,
+            token,
+            loginForm,
+            loginLoading,
+            loginError,
+            handleLogin,
+            logout,
+            UserIcon,
+            LockIcon,
+            wsConnected,
+            wsStatus,
             account,
             positions,
             trades,
-            strategies,
-            signals,
-            stockPool,
-            stats,
+            orders,
             lastUpdate,
-            wsStatus,
-            dailyPnl,
-            positionValue,
-            pnlClass,
-
-            // Tab 相关
             activeTab,
+            strategies,
+            stockPool,
             selectedSymbol,
             availableSymbols,
-
-            // 方法
-            toggleStrategy,
-            refreshData,
+            stats,
+            positionValue,
             formatMoney,
-            formatVolume
+            toggleStrategy
         };
     }
 });
 
-// 使用 Element Plus
 app.use(ElementPlus);
-
-// 挂载
+for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
+    app.component(key, component);
+}
 app.mount('#app');

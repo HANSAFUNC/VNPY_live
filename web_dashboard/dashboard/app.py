@@ -1,10 +1,13 @@
 """FastAPI 应用"""
 from pathlib import Path
+from datetime import datetime, timedelta
 
-from fastapi import FastAPI, WebSocket
+from fastapi import FastAPI, WebSocket, HTTPException, status
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
 from contextlib import asynccontextmanager
+from pydantic import BaseModel
 
 from .data_manager import DataManager
 
@@ -18,6 +21,20 @@ STATIC_DIR.mkdir(parents=True, exist_ok=True)
 (STATIC_DIR / "js").mkdir(exist_ok=True)
 
 data_manager = DataManager()
+security = HTTPBearer(auto_error=False)
+
+# 简单的用户存储（生产环境应使用数据库）
+USERS = {
+    "admin": "admin123"
+}
+
+# 简单的 token 存储
+TOKENS = {}
+
+
+class LoginForm(BaseModel):
+    username: str
+    password: str
 
 
 @asynccontextmanager
