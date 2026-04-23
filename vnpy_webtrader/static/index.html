@@ -1,104 +1,65 @@
 <!DOCTYPE html>
-<html>
-    <head>
-        <title>Test</title>
-    </head>
-    <body>
-        <div id=app>
-        <h1>WebSocket Test</h1>
-        <form v-on:submit.prevent>
-            <div>
-                username
-                <input class="username" type="text" id="username" autocomplete="off" v-model="username"/>
-            </div>
-            <div>
-                password
-                <input class="password" type="text" id="password" autocomplete="off" v-model="password"/>
-            </div>
-            <div>
-                <button v-on:click="login">login</button>
-            </div>
-
-            
-        </form>
-        <ul id='messages'>
-        </ul>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VNPY WebTrader</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div id="app">
+        <!-- 登录视图 -->
+        <div v-if="!isLoggedIn" class="login-container">
+            <el-card class="login-card">
+                <h2>VNPY WebTrader</h2>
+                <el-form :model="loginForm" @submit.prevent="handleLogin">
+                    <el-form-item>
+                        <el-input
+                            v-model="loginForm.username"
+                            placeholder="用户名"
+                            prefix-icon="User"
+                        />
+                    </el-form-item>
+                    <el-form-item>
+                        <el-input
+                            v-model="loginForm.password"
+                            type="password"
+                            placeholder="密码"
+                            prefix-icon="Lock"
+                        />
+                    </el-form-item>
+                    <el-form-item>
+                        <el-button
+                            type="primary"
+                            @click="handleLogin"
+                            :loading="loginLoading"
+                            style="width: 100%"
+                        >
+                            登录
+                        </el-button>
+                    </el-form-item>
+                </el-form>
+                <el-alert
+                    v-if="loginError"
+                    :title="loginError"
+                    type="error"
+                    closable
+                    @close="loginError = ''"
+                />
+            </el-card>
         </div>
-        <script src="https://cdn.jsdelivr.net/npm/vue@2"></script>
-        <script src="https://cdn.staticfile.org/vue-resource/1.5.1/vue-resource.min.js"></script>
-        <script>
-            new Vue({
-                el: '#app',
-                data: function() {
-                    return {
-                        TOKEN:"",
-                        username:"",
-                        password:""
-                    }
-                },
-                mounted(){
-                    this.init()
-                },
-                methods: {
-                    init:function(){
 
-                    },
-                    connect: function(event){
-                        that = this
-                        this.$http.get('/connect',{
-                            headers:{
-                                accept: "application/json",
-                                Authorization: that.TOKEN.token_type + " " + that.TOKEN.access_token
-                            }
-                        }).then(function(res){
-                            console.log("success");
-                        },function(){
-                            console.log('deal error');
-                        });
-                    },
-                    open: function () {
-                        console.log("socket connected")
-                    },
-                    error: function () {
-                        console.log("connect error")
-                    },
-                    getMessage: function (event) {
-                        console.log(event)
-                        var messages = document.getElementById('messages')
-                        var message = document.createElement('li')
-                        var content = document.createTextNode(event.data)
-                        message.appendChild(content)
-                        messages.appendChild(message)
-                    },
-                    send: function () {
-                        this.socket.send(params)
-                    },
-                    close: function () {
-                        console.log("socket已经关闭")
-                    },
-                    login: function (evevt) {
-                        that = this
-                        pa = new FormData()
-                        pa.append("username", that.username)
-                        pa.append("password", that.password)
-                        this.$http.post("/token",pa).then(function(res){
-                            console.log("login success") 
-                            console.log(res.data) 
-                            that.TOKEN = res.data
-                            if(typeof(WebSocket) === "undefined"){
-                                alert("error socket")
-                            }else{
-                                that.socket = new WebSocket("ws://127.0.0.1:8000/ws/?token=" + that.TOKEN.access_token)
-                                that.socket.onopen = that.open
-                                that.socket.onerror = that.error
-                                that.socket.onmessage = that.getMessage
-                            } 
-                        },function(){
-                            console.log('login error');
-                        });
-                    }
-                }
-            })
-        </script>
-    </body>
+        <!-- 看板视图 -->
+        <div v-else class="dashboard-container">
+            <h1>Dashboard</h1>
+            <p>Token: {{ token }}</p>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    <script src="https://unpkg.com/@element-plus/icons-vue"></script>
+    <script src="/static/js/app.js"></script>
+</body>
 </html>
