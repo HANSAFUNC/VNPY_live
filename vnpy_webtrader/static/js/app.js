@@ -1,4 +1,4 @@
-const { createApp, ref, reactive, computed, shallowRef } = Vue;
+const { createApp, ref, reactive, computed, watch } = Vue;
 
 const app = createApp({
     setup() {
@@ -43,6 +43,60 @@ const app = createApp({
             buy: [],
             sell: [],
             last_update: ''
+        });
+
+        // 图表状态
+        const selectedSymbol = ref('');
+        const availableSymbols = ref([]);
+        const candleData = ref({}); // { symbol: [candles] }
+        let klineChart = null;
+
+        // 标签激活时初始化图表
+        const initChart = () => {
+            if (!klineChart) {
+                const el = document.getElementById('kline-chart');
+                if (el) klineChart = echarts.init(el);
+            }
+        };
+
+        // 用 K 线数据更新图表
+        const updateChart = () => {
+            if (!klineChart || !selectedSymbol.value) return;
+
+            const data = candleData.value[selectedSymbol.value] || [];
+            const dates = data.map(d => d.datetime);
+            const values = data.map(d => [d.open, d.close, d.low, d.high]);
+
+            const option = {
+                title: { text: selectedSymbol.value + ' - K线图', left: 'center' },
+                tooltip: { trigger: 'axis' },
+                xAxis: { type: 'category', data: dates },
+                yAxis: { type: 'value' },
+                series: [{
+                    type: 'candlestick',
+                    data: values,
+                    itemStyle: {
+                        color: '#ef232a',
+                        color0: '#14b143'
+                    }
+                }]
+            };
+
+            klineChart.setOption(option);
+        };
+
+        // 监听标签变化以初始化图表
+        watch(activeTab, (val) => {
+            if (val === 'charts') {
+                setTimeout(() => {
+                    initChart();
+                    updateChart();
+                }, 100);
+            }
+        });
+
+        watch(selectedSymbol, () => {
+            updateChart();
         });
 
         // 计算属性
@@ -172,6 +226,10 @@ const app = createApp({
                     stockPool.value = { ...stockPool.value, ...data };
                     break;
                 case 'eTick.':
+                    // 存储 tick，可更新实时图表
+                    if (data.vt_symbol && !candleData.value[data.vt_symbol]) {
+                        availableSymbols.value = [...new Set([...availableSymbols.value, data.vt_symbol])];
+                    }
                     break;
                 default:
                     console.log('未知主题：', topic, data);
@@ -232,6 +290,8 @@ const app = createApp({
             activeTab,
             strategies,
             stockPool,
+            selectedSymbol,
+            availableSymbols,
             positionValue,
             formatMoney,
             toggleStrategy
