@@ -11,7 +11,7 @@ shift 2
 $python -m pip install --upgrade pip wheel --index $pypi_index
 
 # Get and build ta-lib
-function install-ta-lib()
+function install_ta_lib()
 {   
     # install numpy first
     $python -m pip install numpy==2.2.3 --index $pypi_index
@@ -27,11 +27,11 @@ function install-ta-lib()
 
     $python -m pip install ta-lib==0.6.4 --index $pypi_index
 }
-function ta-lib-exists()
+function ta_lib_exists()
 {
     $prefix/ta-lib-config --libs > /dev/null
 }
-ta-lib-exists || install-ta-lib
+ta_lib_exists || install_ta_lib
 
 # Install local Chinese language environment
 locale-gen zh_CN.GB18030

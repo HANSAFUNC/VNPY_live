@@ -9,3 +9,7 @@ polars
 scipy
 scikit-learn
 xtquant
+datasieve
+vnpy_xt
+uvicorn[standard]
+fastapi

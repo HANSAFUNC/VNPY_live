@@ -10,16 +10,16 @@ shift 2
 $python -m pip install --upgrade pip wheel --index $pypi_index
 
 # Get and build ta-lib
-function install-ta-lib()
+function install_ta_lib()
 {
     export HOMEBREW_NO_AUTO_UPDATE=true
     brew install ta-lib
 }
-function ta-lib-exists()
+function ta_lib_exists()
 {
     ta-lib-config --libs > /dev/null
 }
-ta-lib-exists || install-ta-lib
+ta_lib_exists || install_ta_lib
 
 # install ta-lib
 $python -m pip install numpy==2.2.3 --index $pypi_index

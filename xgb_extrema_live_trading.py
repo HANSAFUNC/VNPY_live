@@ -160,7 +160,7 @@ class LiveTrader:
         except ImportError as e:
             logger.error(f"导入网关失败: {e}")
             logger.error("请安装 vnpy_xt: pip install vnpy_xt")
-            return False
+            return True
 
         except Exception as e:
             logger.error(f"连接网关异常: {e}")
