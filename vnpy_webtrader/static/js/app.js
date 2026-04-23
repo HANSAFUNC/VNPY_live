@@ -38,6 +38,13 @@ const app = createApp({
             { name: 'XGBExtremaLive', running: true }
         ]);
 
+        // 股票池
+        const stockPool = ref({
+            buy: [],
+            sell: [],
+            last_update: ''
+        });
+
         // 计算属性
         const positionValue = computed(() => {
             return positions.value.reduce((sum, p) => sum + (p.volume * (p.last_price || p.price || 0)), 0);
@@ -161,6 +168,9 @@ const app = createApp({
                 case 'eOrder.':
                     updateOrder(data);
                     break;
+                case 'stock_pool':
+                    stockPool.value = { ...stockPool.value, ...data };
+                    break;
                 case 'eTick.':
                     break;
                 default:
@@ -221,6 +231,7 @@ const app = createApp({
             lastUpdate,
             activeTab,
             strategies,
+            stockPool,
             positionValue,
             formatMoney,
             toggleStrategy

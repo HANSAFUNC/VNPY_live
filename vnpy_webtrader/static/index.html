@@ -177,8 +177,71 @@
                         </div>
                     </el-tab-pane>
 
+                    <!-- 标签 2：股票池 -->
+                    <el-tab-pane label="股票池" name="pool">
+                        <el-row :gutter="20">
+                            <!-- 买入信号 -->
+                            <el-col :span="12">
+                                <el-card>
+                                    <template #header>
+                                        <span style="color: #f56c6c; font-weight: bold;">📈 今日买入信号</span>
+                                        <el-tag type="danger" size="small" style="margin-left: 10px;">
+                                            {{ stockPool.buy?.length || 0 }} 只
+                                        </el-tag>
+                                    </template>
+                                    <el-table :data="stockPool.buy || []" stripe>
+                                        <el-table-column prop="vt_symbol" label="股票代码" width="120"></el-table-column>
+                                        <el-table-column prop="close_price" label="收盘价">
+                                            <template #default="{ row }">
+                                                ¥{{ row.close_price?.toFixed(2) }}
+                                            </template>
+                                        </el-table-column>
+                                        <el-table-column prop="strength" label="信号强度">
+                                            <template #default="{ row }">
+                                                <el-progress
+                                                    :percentage="Math.round((row.strength || 0) * 100)"
+                                                    :color="'#f56c6c'"
+                                                ></el-progress>
+                                            </template>
+                                        </el-table-column>
+                                    </el-table>
+                                </el-card>
+                            </el-col>
+
+                            <!-- 卖出信号 -->
+                            <el-col :span="12">
+                                <el-card>
+                                    <template #header>
+                                        <span style="color: #67c23a; font-weight: bold;">📉 今日卖出信号</span>
+                                        <el-tag type="success" size="small" style="margin-left: 10px;">
+                                            {{ stockPool.sell?.length || 0 }} 只
+                                        </el-tag>
+                                    </template>
+                                    <el-table :data="stockPool.sell || []" stripe>
+                                        <el-table-column prop="vt_symbol" label="股票代码" width="120"></el-table-column>
+                                        <el-table-column prop="close_price" label="收盘价">
+                                            <template #default="{ row }">
+                                                ¥{{ row.close_price?.toFixed(2) }}
+                                            </template>
+                                        </el-table-column>
+                                        <el-table-column prop="strength" label="信号强度">
+                                            <template #default="{ row }">
+                                                <el-progress
+                                                    :percentage="Math.round((row.strength || 0) * 100)"
+                                                    :color="'#67c23a'"
+                                                ></el-progress>
+                                            </template>
+                                        </el-table-column>
+                                    </el-table>
+                                </el-card>
+                            </el-col>
+                        </el-row>
+                        <div style="text-align: center; margin-top: 20px; color: #909399;">
+                            更新时间：{{ stockPool.last_update || '--' }}
+                        </div>
+                    </el-tab-pane>
+
                     <!-- 占位标签 -->
-                    <el-tab-pane label="股票池" name="pool">股票池内容</el-tab-pane>
                     <el-tab-pane label="K线图表" name="charts">K线图表内容</el-tab-pane>
                     <el-tab-pane label="分析" name="analysis">分析内容</el-tab-pane>
                 </el-tabs>
