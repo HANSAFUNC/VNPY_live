@@ -1,0 +1,230 @@
+/* VNPY Web Dashboard Styles */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    background: #f0f2f5;
+    color: #333;
+}
+
+/* Header */
+.el-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 20px;
+    height: 60px;
+}
+
+.el-header h1 {
+    font-size: 24px;
+    font-weight: 500;
+}
+
+.header-status {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+}
+
+.update-time {
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+/* Dashboard */
+.dashboard {
+    padding: 20px;
+}
+
+.overview-row {
+    margin-bottom: 20px;
+}
+
+/* Metric Cards */
+.metric-card {
+    text-align: center;
+    padding: 20px;
+}
+
+.metric-card .metric-label {
+    font-size: 14px;
+    color: #666;
+    margin-bottom: 10px;
+}
+
+.metric-card .metric-value {
+    font-size: 28px;
+    font-weight: 600;
+    color: #333;
+}
+
+.metric-card .metric-value.profit {
+    color: #f56c6c;
+}
+
+.metric-card .metric-value.loss {
+    color: #67c23a;
+}
+
+/* Main Content */
+.main-content {
+    margin-top: 20px;
+}
+
+/* Tables */
+.el-table {
+    margin-top: 10px;
+}
+
+.profit {
+    color: #f56c6c;
+}
+
+.loss {
+    color: #67c23a;
+}
+
+/* Strategy List */
+.strategy-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.strategy-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px;
+    border-bottom: 1px solid #ebeef5;
+}
+
+.strategy-item:last-child {
+    border-bottom: none;
+}
+
+.strategy-info {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.strategy-name {
+    font-weight: 500;
+    font-size: 14px;
+}
+
+/* Signal List */
+.signal-list {
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.signal-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 12px;
+    border-bottom: 1px solid #ebeef5;
+}
+
+.signal-item:last-child {
+    border-bottom: none;
+}
+
+.signal-item .symbol {
+    font-weight: 500;
+    font-size: 14px;
+}
+
+/* Charts */
+.chart-container {
+    height: 300px;
+    margin-top: 20px;
+}
+
+/* Notification */
+.notification {
+    position: fixed;
+    top: 70px;
+    right: 20px;
+    z-index: 1000;
+    max-width: 400px;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+    .el-col-8 {
+        width: 100% !important;
+        margin-top: 20px;
+    }
+
+    .el-col-16 {
+        width: 100% !important;
+    }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #f1f1f1;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #c0c4cc;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #909399;
+}
+
+/* Loading animation */
+@keyframes pulse {
+    0% {
+        opacity: 0.6;
+    }
+    50% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0.6;
+    }
+}
+
+.loading {
+    animation: pulse 1.5s infinite;
+}
+
+/* Status indicators */
+.status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 5px;
+}
+
+.status-dot.online {
+    background: #67c23a;
+}
+
+.status-dot.offline {
+    background: #f56c6c;
+}
+
+.status-dot.connecting {
+    background: #e6a23c;
+    animation: pulse 1s infinite;
+}
