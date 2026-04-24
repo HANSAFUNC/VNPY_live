@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>VNPY 交易看板</title>
+    <title>VNPY Pro 交易终端</title>
     <!-- Element Plus CSS -->
     <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
     <!-- Custom CSS -->
@@ -11,89 +11,142 @@
 </head>
 <body>
     <div id="app">
-        <el-container>
-            <!-- Header -->
-            <el-header>
-                <h1>VNPY 交易看板</h1>
-                <div class="header-status">
-                    <span class="update-time">最后更新: {{ lastUpdate }}</span>
-                    <el-tag :type="wsStatus.type" effect="dark">
-                        <span :class="['status-dot', wsStatus.type === 'success' ? 'online' : 'offline']"></span>
-                        {{ wsStatus.text }}
-                    </el-tag>
+        <!-- 登录界面 -->
+        <div v-if="!isLoggedIn" class="login-container">
+            <el-card class="login-card" shadow="never">
+                <h2 style="text-align: center; margin: 0;">VNPY Pro</h2>
+                <p class="subtitle" style="text-align: center;">量化交易终端</p>
+
+                <el-form :model="loginForm" @submit.prevent="handleLogin">
+                    <el-form-item>
+                        <el-input
+                            v-model="loginForm.username"
+                            placeholder="用户名"
+                            size="large"
+                            prefix-icon="User">
+                        </el-input>
+                    </el-form-item>
+
+                    <el-form-item>
+                        <el-input
+                            v-model="loginForm.password"
+                            type="password"
+                            placeholder="密码"
+                            size="large"
+                            prefix-icon="Lock"
+                            @keyup.enter="handleLogin">
+                        </el-input>
+                    </el-form-item>
+
+                    <el-form-item v-if="loginError">
+                        <el-alert :title="loginError" type="error" :closable="false" show-icon></el-alert>
+                    </el-form-item>
+
+                    <el-form-item style="margin-top: 24px;">
+                        <el-button
+                            type="primary"
+                            size="large"
+                            :loading="loginLoading"
+                            @click="handleLogin">
+                            登录系统
+                        </el-button>
+                    </el-form-item>
+                </el-form>
+            </el-card>
+        </div>
+
+        <!-- 主界面 -->
+        <div v-else class="main-container">
+            <!-- 顶部状态栏 -->
+            <header class="top-header">
+                <div class="top-header-left">
+                    <div class="logo">
+                        <div class="logo-icon">V</div>
+                        <span>VNPY Pro</span>
+                    </div>
                 </div>
-            </el-header>
 
-            <el-main class="dashboard">
-                <!-- 4个Tab -->
-                <el-tabs v-model="activeTab" type="border-card">
-                    <!-- Tab 1: 交易 -->
-                    <el-tab-pane label="交易" name="trading">
-                        <!-- 账户概览 -->
-                        <el-row :gutter="20" class="overview-row">
-                            <el-col :span="6">
-                                <el-card>
-                                    <div class="metric-card">
-                                        <div class="metric-label">总资产</div>
-                                        <div class="metric-value">{{ formatMoney(account.balance) }}</div>
-                                    </div>
-                                </el-card>
-                            </el-col>
-                            <el-col :span="6">
-                                <el-card>
-                                    <div class="metric-card">
-                                        <div class="metric-label">可用资金</div>
-                                        <div class="metric-value">{{ formatMoney(account.available) }}</div>
-                                    </div>
-                                </el-card>
-                            </el-col>
-                            <el-col :span="6">
-                                <el-card>
-                                    <div class="metric-card">
-                                        <div class="metric-label">当日盈亏</div>
-                                        <div :class="['metric-value', pnlClass]">{{ formatMoney(dailyPnl) }}</div>
-                                    </div>
-                                </el-card>
-                            </el-col>
-                            <el-col :span="6">
-                                <el-card>
-                                    <div class="metric-card">
-                                        <div class="metric-label">持仓市值</div>
-                                        <div class="metric-value">{{ formatMoney(positionValue) }}</div>
-                                    </div>
-                                </el-card>
-                            </el-col>
-                        </el-row>
+                <div class="top-header-right">
+                    <!-- WebSocket 连接状态 -->
+                    <div class="status-item">
+                        <span :class="['status-dot', wsConnected ? 'online' : 'offline']"></span>
+                        <span>{{ wsConnected ? '已连接' : '未连接' }}</span>
+                    </div>
 
-                        <!-- 持仓和策略 -->
-                        <el-row :gutter="20" class="main-content">
-                            <el-col :span="16">
-                                <!-- 持仓明细 -->
-                                <el-card title="持仓明细">
-                                    <template #header>
-                                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                                            <span>持仓明细</span>
-                                            <span style="color: #666; font-size: 14px;">
-                                                持仓市值: {{ formatMoney(positionValue) }}
-                                            </span>
-                                        </div>
-                                    </template>
-                                    <el-table :data="positions" size="small" stripe>
+                    <!-- 交易模式 -->
+                    <div class="trading-mode-tag" :class="tradingMode.mode">
+                        {{ tradingMode.mode_text }}
+                    </div>
+
+                    <!-- 最后更新时间 -->
+                    <span class="update-time">{{ lastUpdate }}</span>
+
+                    <!-- 退出按钮 -->
+                    <el-button type="danger" size="small" plain @click="logout">
+                        退出
+                    </el-button>
+                </div>
+            </header>
+
+            <!-- 主内容区 -->
+            <div class="main-content">
+                <!-- 左侧主要内容 -->
+                <div class="left-content">
+                    <!-- 账户概览卡片 -->
+                    <div class="section-card">
+                        <div class="card-header">
+                            <h3>账户概览</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="account-overview">
+                                <div class="account-item">
+                                    <span class="account-label">总资产</span>
+                                    <span class="account-value">{{ formatMoney(account.balance) }}</span>
+                                </div>
+                                <div class="account-item">
+                                    <span class="account-label">可用资金</span>
+                                    <span class="account-value">{{ formatMoney(account.available) }}</span>
+                                </div>
+                                <div class="account-item">
+                                    <span class="account-label">冻结资金</span>
+                                    <span class="account-value">{{ formatMoney(account.frozen || 0) }}</span>
+                                </div>
+                                <div class="account-item">
+                                    <span class="account-label">当日盈亏</span>
+                                    <span :class="['account-value', dailyPnl >= 0 ? 'profit' : 'loss']">
+                                        {{ dailyPnl >= 0 ? '+' : '' }}{{ formatMoney(dailyPnl) }}
+                                    </span>
+                                </div>
+                                <div class="account-item">
+                                    <span class="account-label">持仓市值</span>
+                                    <span class="account-value">{{ formatMoney(positionValue) }}</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Tab 切换区 -->
+                    <el-tabs v-model="activeTab" type="border-card">
+                        <!-- 持仓 Tab -->
+                        <el-tab-pane label="持仓明细" name="positions">
+                            <div class="section-card" style="margin: 0; box-shadow: none;">
+                                <div class="card-body">
+                                    <el-table :data="positions" size="small" stripe class="data-table" height="400">
                                         <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
-                                        <el-table-column prop="direction" label="方向" width="80">
+                                        <el-table-column prop="direction" label="方向" width="70">
                                             <template #default="{ row }">
                                                 <el-tag :type="row.direction === '多' ? 'danger' : 'success'" size="small">
                                                     {{ row.direction }}
                                                 </el-tag>
                                             </template>
                                         </el-table-column>
-                                        <el-table-column prop="volume" label="持仓量" width="100"></el-table-column>
-                                        <el-table-column prop="price" label="持仓成本">
+                                        <el-table-column prop="volume" label="持仓量" width="90"></el-table-column>
+                                        <el-table-column prop="price" label="持仓成本" width="100">
                                             <template #default="{ row }">
                                                 {{ row.price?.toFixed(2) || '--' }}
                                             </template>
                                         </el-table-column>
-                                        <el-table-column prop="last_price" label="最新价">
+                                        <el-table-column prop="last_price" label="最新价" width="100">
                                             <template #default="{ row }">
                                                 {{ row.last_price?.toFixed(2) || '--' }}
                                             </template>
@@ -105,22 +158,19 @@
                                                 </span>
                                             </template>
                                         </el-table-column>
-                                        <el-table-column prop="pnl_pct" label="盈亏率">
-                                            <template #default="{ row }">
-                                                <span :class="row.pnl_pct >= 0 ? 'profit' : 'loss'">
-                                                    {{ row.pnl_pct >= 0 ? '+' : '' }}{{ row.pnl_pct?.toFixed(2) || '0.00' }}%
-                                                </span>
-                                            </template>
-                                        </el-table-column>
                                     </el-table>
-                                </el-card>
+                                </div>
+                            </div>
+                        </el-tab-pane>
 
-                                <!-- 最近成交 -->
-                                <el-card title="最近成交" style="margin-top: 20px;">
-                                    <el-table :data="trades.slice(0, 10)" size="small" stripe>
-                                        <el-table-column prop="time" label="时间" width="100"></el-table-column>
+                        <!-- 成交 Tab -->
+                        <el-tab-pane label="成交记录" name="trades">
+                            <div class="section-card" style="margin: 0; box-shadow: none;">
+                                <div class="card-body">
+                                    <el-table :data="trades" size="small" stripe class="data-table" height="400">
+                                        <el-table-column prop="datetime" label="时间" width="160"></el-table-column>
                                         <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
-                                        <el-table-column prop="direction" label="方向" width="80">
+                                        <el-table-column prop="direction" label="方向" width="70">
                                             <template #default="{ row }">
                                                 <el-tag :type="row.direction === '多' ? 'danger' : 'success'" size="small">
                                                     {{ row.direction }}
@@ -128,188 +178,151 @@
                                             </template>
                                         </el-table-column>
                                         <el-table-column prop="volume" label="数量" width="80"></el-table-column>
-                                        <el-table-column prop="price" label="价格">
-                                            <template #default="{ row }">
-                                                {{ row.price?.toFixed(2) }}
-                                            </template>
-                                        </el-table-column>
+                                        <el-table-column prop="price" label="价格"></el-table-column>
+                                        <el-table-column prop="gateway_name" label="网关"></el-table-column>
                                     </el-table>
-                                </el-card>
-                            </el-col>
+                                </div>
+                            </div>
+                        </el-tab-pane>
 
-                            <el-col :span="8">
-                                <!-- 策略状态 -->
-                                <el-card title="策略状态" style="margin-bottom: 20px;">
-                                    <div class="strategy-list">
-                                        <div v-for="strategy in strategies" :key="strategy.name" class="strategy-item">
-                                            <div class="strategy-info">
-                                                <span class="strategy-name">{{ strategy.name }}</span>
-                                                <el-tag :type="strategy.running ? 'success' : 'info'" size="small">
-                                                    {{ strategy.running ? '运行中' : '已停止' }}
+                        <!-- 委托 Tab -->
+                        <el-tab-pane label="委托记录" name="orders">
+                            <div class="section-card" style="margin: 0; box-shadow: none;">
+                                <div class="card-body">
+                                    <el-table :data="orders" size="small" stripe class="data-table" height="400">
+                                        <el-table-column prop="datetime" label="时间" width="160"></el-table-column>
+                                        <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
+                                        <el-table-column prop="direction" label="方向" width="70">
+                                            <template #default="{ row }">
+                                                <el-tag :type="row.direction === '多' ? 'danger' : 'success'" size="small">
+                                                    {{ row.direction }}
                                                 </el-tag>
-                                            </div>
-                                            <el-switch v-model="strategy.running" @change="toggleStrategy(strategy)"></el-switch>
-                                        </div>
-                                    </div>
-                                </el-card>
-
-                                <!-- 今日信号 -->
-                                <el-card title="今日信号">
-                                    <div class="signal-list">
-                                        <div v-for="sig in signals" :key="sig.id" class="signal-item">
-                                            <span class="symbol">{{ sig.symbol }}</span>
-                                            <el-tag :type="sig.action === '买入' ? 'danger' : 'success'" size="small">
-                                                {{ sig.action }}
-                                            </el-tag>
-                                        </div>
-                                        <div v-if="signals.length === 0" style="text-align: center; color: #999; padding: 20px;">
-                                            暂无信号
-                                        </div>
-                                    </div>
-                                </el-card>
-                            </el-col>
-                        </el-row>
-                    </el-tab-pane>
-
-                    <!-- Tab 2: 股票池 -->
-                    <el-tab-pane label="股票池" name="stock_pool">
-                        <el-row :gutter="20">
-                            <!-- 今日买入 -->
-                            <el-col :span="12">
-                                <el-card>
-                                    <template #header>
-                                        <span style="color: #f56c6c; font-weight: bold;">📈 今日买入信号</span>
-                                        <el-tag type="danger" size="small" style="margin-left: 10px;">
-                                            {{ stockPool.buy_stocks?.length || 0 }} 只
-                                        </el-tag>
-                                    </template>
-                                    <el-table :data="stockPool.buy_stocks || []" stripe style="width: 100%">
-                                        <el-table-column prop="vt_symbol" label="股票代码" width="120"></el-table-column>
-                                        <el-table-column prop="close_price" label="收盘价" width="100">
-                                            <template #default="{ row }">
-                                                ¥{{ row.close_price?.toFixed(2) || '--' }}
                                             </template>
                                         </el-table-column>
-                                        <el-table-column prop="strength" label="信号强度">
+                                        <el-table-column prop="volume" label="数量" width="80"></el-table-column>
+                                        <el-table-column prop="price" label="价格"></el-table-column>
+                                        <el-table-column prop="status" label="状态" width="90">
                                             <template #default="{ row }">
-                                                <el-progress
-                                                    :percentage="Math.round((row.strength || 0) * 100)"
-                                                    :color="'#f56c6c'"
-                                                    :show-text="true">
-                                                </el-progress>
-                                            </template>
-                                        </el-table-column>
-                                        <el-table-column prop="volume" label="成交量" width="120">
-                                            <template #default="{ row }">
-                                                {{ formatVolume(row.volume) }}
+                                                <el-tag :type="row.status === '已成交' ? 'success' : 'warning'" size="small">
+                                                    {{ row.status }}
+                                                </el-tag>
                                             </template>
                                         </el-table-column>
                                     </el-table>
-                                </el-card>
-                            </el-col>
+                                </div>
+                            </div>
+                        </el-tab-pane>
 
-                            <!-- 今日卖出 -->
-                            <el-col :span="12">
-                                <el-card>
-                                    <template #header>
-                                        <span style="color: #67c23a; font-weight: bold;">📉 今日卖出信号</span>
-                                        <el-tag type="success" size="small" style="margin-left: 10px;">
-                                            {{ stockPool.sell_stocks?.length || 0 }} 只
-                                        </el-tag>
-                                    </template>
-                                    <el-table :data="stockPool.sell_stocks || []" stripe style="width: 100%">
-                                        <el-table-column prop="vt_symbol" label="股票代码" width="120"></el-table-column>
-                                        <el-table-column prop="close_price" label="收盘价" width="100">
-                                            <template #default="{ row }">
-                                                ¥{{ row.close_price?.toFixed(2) || '--' }}
-                                            </template>
-                                        </el-table-column>
-                                        <el-table-column prop="strength" label="信号强度">
-                                            <template #default="{ row }">
-                                                <el-progress
-                                                    :percentage="Math.round((row.strength || 0) * 100)"
-                                                    :color="'#67c23a'"
-                                                    :show-text="true">
-                                                </el-progress>
-                                            </template>
-                                        </el-table-column>
-                                        <el-table-column prop="volume" label="成交量" width="120">
-                                            <template #default="{ row }">
-                                                {{ formatVolume(row.volume) }}
-                                            </template>
-                                        </el-table-column>
-                                    </el-table>
-                                </el-card>
-                            </el-col>
-                        </el-row>
-
-                        <!-- 股票池更新时间 -->
-                        <el-row style="margin-top: 20px;">
-                            <el-col :span="24" style="text-align: center; color: #909399;">
-                                股票池更新时间：{{ stockPool.last_update || '--' }}
-                            </el-col>
-                        </el-row>
-                    </el-tab-pane>
-
-                    <!-- Tab 3: K线图表 -->
-                    <el-tab-pane label="K线图表" name="charts">
-                        <el-row :gutter="20">
-                            <el-col :span="24">
-                                <el-card>
-                                    <template #header>
-                                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                                            <span>K线图表</span>
-                                            <el-select v-model="selectedSymbol" placeholder="选择股票" style="width: 200px;">
-                                                <el-option
-                                                    v-for="symbol in availableSymbols"
-                                                    :key="symbol"
-                                                    :label="symbol"
-                                                    :value="symbol">
-                                                </el-option>
-                                            </el-select>
-                                        </div>
-                                    </template>
+                        <!-- 图表 Tab -->
+                        <el-tab-pane label="K线图表" name="charts">
+                            <div class="section-card" style="margin: 0; box-shadow: none;">
+                                <div class="card-header">
+                                    <el-select v-model="selectedSymbol" placeholder="选择股票" style="width: 200px;">
+                                        <el-option
+                                            v-for="symbol in availableSymbols"
+                                            :key="symbol"
+                                            :label="symbol"
+                                            :value="symbol">
+                                        </el-option>
+                                    </el-select>
+                                </div>
+                                <div class="card-body">
                                     <div id="kline-chart" style="width: 100%; height: 400px;"></div>
-                                </el-card>
-                            </el-col>
-                        </el-row>
-                    </el-tab-pane>
+                                </div>
+                            </div>
+                        </el-tab-pane>
+                    </el-tabs>
+                </div>
 
-                    <!-- Tab 4: 分析 -->
-                    <el-tab-pane label="分析" name="analysis">
-                        <el-row :gutter="20">
-                            <el-col :span="12">
-                                <el-card title="盈亏分布">
-                                    <div id="pnl-chart" style="width: 100%; height: 300px;"></div>
-                                </el-card>
-                            </el-col>
-                            <el-col :span="12">
-                                <el-card title="资金曲线">
-                                    <div id="equity-chart" style="width: 100%; height: 300px;"></div>
-                                </el-card>
-                            </el-col>
-                        </el-row>
+                <!-- 右侧边栏 -->
+                <div class="right-sidebar">
+                    <!-- 策略状态 -->
+                    <div class="section-card">
+                        <div class="card-header">
+                            <h3>策略状态</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="strategy-list">
+                                <div v-for="strategy in strategies" :key="strategy.name" class="strategy-item">
+                                    <span class="strategy-name">{{ strategy.name }}</span>
+                                    <div class="strategy-status">
+                                        <el-tag :type="strategy.running ? 'success' : 'info'" size="small">
+                                            {{ strategy.running ? '运行中' : '已停止' }}
+                                        </el-tag>
+                                        <el-switch
+                                            v-model="strategy.running"
+                                            @change="toggleStrategy(strategy)"
+                                            size="small">
+                                        </el-switch>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
 
-                        <el-row :gutter="20" style="margin-top: 20px;">
-                            <el-col :span="24">
-                                <el-card title="统计数据">
-                                    <el-row :gutter="20">
-                                        <el-col :span="4" v-for="(value, key) in stats" :key="key">
-                                            <div class="stat-item">
-                                                <div class="stat-label">{{ key }}</div>
-                                                <div :class="['stat-value', value >= 0 ? 'profit' : 'loss']">
-                                                    {{ typeof value === 'number' ? value.toFixed(2) : value }}
-                                                </div>
-                                            </div>
-                                        </el-col>
-                                    </el-row>
-                                </el-card>
-                            </el-col>
-                        </el-row>
-                    </el-tab-pane>
-                </el-tabs>
-            </el-main>
-        </el-container>
+                    <!-- 买卖信号 -->
+                    <div class="section-card">
+                        <div class="card-header">
+                            <h3>买卖信号</h3>
+                            <span style="font-size: 12px; color: #909399;">
+                                买入 {{ stockPool.buy?.length || 0 }} / 卖出 {{ stockPool.sell?.length || 0 }}
+                            </span>
+                        </div>
+                        <div class="card-body">
+                            <div class="signal-list">
+                                <div v-if="signals.length === 0" class="empty-state">
+                                    暂无信号
+                                </div>
+                                <div v-for="sig in signals" :key="sig.id" class="signal-item">
+                                    <span class="signal-symbol">{{ sig.symbol }}</span>
+                                    <span :class="['signal-action', sig.action]">
+                                        {{ sig.action === 'buy' ? '买入' : '卖出' }}
+                                    </span>
+                                </div>
+                            </div>
+                            <div style="padding: 10px 20px; font-size: 12px; color: #909399; text-align: center; border-top: 1px solid #ebeef5;">
+                                更新时间: {{ stockPool.last_update || '--' }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 统计分析 -->
+                    <div class="section-card">
+                        <div class="card-header">
+                            <h3>统计分析</h3>
+                        </div>
+                        <div class="card-body">
+                            <div class="stat-grid">
+                                <div class="stat-card">
+                                    <div class="stat-label">总收益率</div>
+                                    <div :class="['stat-value', stats.total_return >= 0 ? 'profit' : 'loss']">
+                                        {{ stats.total_return?.toFixed(2) || '0.00' }}%
+                                    </div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-label">年化收益</div>
+                                    <div :class="['stat-value', stats.annual_return >= 0 ? 'profit' : 'loss']">
+                                        {{ stats.annual_return?.toFixed(2) || '0.00' }}%
+                                    </div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-label">最大回撤</div>
+                                    <div class="stat-value loss">
+                                        {{ stats.max_drawdown?.toFixed(2) || '0.00' }}%
+                                    </div>
+                                </div>
+                                <div class="stat-card">
+                                    <div class="stat-label">胜率</div>
+                                    <div class="stat-value">
+                                        {{ stats.win_rate?.toFixed(1) || '0.0' }}%
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Vue 3 -->

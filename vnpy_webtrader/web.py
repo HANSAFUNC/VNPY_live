@@ -15,6 +15,7 @@ import secrets
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status, Depends, Query
 from fastapi.responses import HTMLResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from pydantic import BaseModel
 from jose import jwt, JWTError
@@ -46,6 +47,18 @@ SETTING_FILENAME = "web_trader_setting.json"
 SETTING_FILEPATH = get_file_path(SETTING_FILENAME)
 
 setting: dict = load_json(SETTING_FILEPATH)
+
+# 确保配置有默认值
+default_setting = {
+    "username": "admin",
+    "password": "admin",
+    "req_address": "tcp://localhost:2014",
+    "sub_address": "tcp://localhost:2015"
+}
+for key, value in default_setting.items():
+    if key not in setting:
+        setting[key] = value
+
 USERNAME = setting["username"]              # 用户名
 PASSWORD = setting["password"]              # 密码
 REQ_ADDRESS = setting["req_address"]        # 请求服务地址
@@ -138,17 +151,32 @@ async def get_access(token: str = Depends(oauth2_scheme)) -> bool:
 # 创建FastAPI应用
 app: FastAPI = FastAPI()
 
+# 确定静态文件目录
+web_dashboard_static = Path(__file__).parent.parent / "web_dashboard" / "static"
+vnpy_webtrader_static = Path(__file__).parent / "static"
+static_directory = web_dashboard_static if web_dashboard_static.exists() else vnpy_webtrader_static
+
+# 挂载静态文件目录
+app.mount("/static", StaticFiles(directory=static_directory), name="static")
+
 
 @app.get("/")
 def index() -> HTMLResponse:
     """获取主页面"""
-    # 优先使用 web_dashboard 的 index.html（如果存在）
-    web_dashboard_path: Path = Path(__file__).parent.parent.joinpath("web_dashboard/static/index.html")
-    index_path: Path = web_dashboard_path if web_dashboard_path.exists() else Path(__file__).parent.joinpath("static/index.html")
-    with open(index_path) as f:
-        content: str = f.read()
+    try:
+        # 优先使用 web_dashboard 的 index.html（如果存在）
+        web_dashboard_path: Path = Path(__file__).parent.parent.joinpath("web_dashboard/static/index.html")
+        index_path: Path = web_dashboard_path if web_dashboard_path.exists() else Path(__file__).parent.joinpath("static/index.html")
 
-    return HTMLResponse(content)
+        if not index_path.exists():
+            return HTMLResponse(f"<h1>404</h1><p>找不到页面: {index_path}</p>", status_code=404)
+
+        with open(index_path, encoding="utf-8") as f:
+            content: str = f.read()
+
+        return HTMLResponse(content)
+    except Exception as e:
+        return HTMLResponse(f"<h1>错误</h1><p>{e}</p>", status_code=500)
 
 
 @app.post("/token", response_model=Token)
@@ -267,6 +295,45 @@ def get_all_contracts(access: bool = Depends(get_access)) -> list:  # noqa: ARG0
     """查询合约信息"""
     contracts: list[ContractData] = rpc_client.get_all_contracts()
     return [to_dict(contract) for contract in contracts]
+
+
+@app.get("/trading_mode")
+def get_trading_mode(access: bool = Depends(get_access)) -> dict:  # noqa: ARG001
+    """查询交易模式（实盘/模拟盘）"""
+    try:
+        # 从RPC客户端获取引擎信息
+        engines = rpc_client.get_all_engines() if hasattr(rpc_client, 'get_all_engines') else {}
+        # 尝试获取 TradeEngine 的 paper_trading 属性
+        for engine_name, engine in engines.items():
+            if hasattr(engine, 'paper_trading'):
+                return {
+                    "mode": "paper" if engine.paper_trading else "live",
+                    "mode_text": "模拟盘" if engine.paper_trading else "实盘",
+                    "engine": engine_name
+                }
+        # 默认返回模拟盘（如果无法确定）
+        return {"mode": "paper", "mode_text": "模拟盘", "engine": "unknown"}
+    except Exception:
+        return {"mode": "paper", "mode_text": "模拟盘", "engine": "unknown"}
+
+
+@app.get("/kline/{vt_symbol}")
+def get_kline_data(
+    vt_symbol: str,
+    period: str = Query("1d", description="周期: 1d, 1h, 15m"),
+    access: bool = Depends(get_access)  # noqa: ARG001
+) -> list:
+    """获取K线数据"""
+    try:
+        # 从RPC获取K线数据
+        if hasattr(rpc_client, 'get_kline'):
+            data = rpc_client.get_kline(vt_symbol, period)
+            return data if data else []
+        # 如果没有K线接口，返回空数组
+        return []
+    except Exception as e:
+        logger.error(f"获取K线数据失败: {e}")
+        return []
 
 
 # 活动状态的Websocket连接

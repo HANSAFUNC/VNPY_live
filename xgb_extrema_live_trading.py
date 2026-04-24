@@ -43,6 +43,7 @@ class LiveTrader:
         self,
         paper_trading: bool = True,
         enable_rpc: bool = True,
+        xt_account: str = "your_account",  # 迅投账号
     ):
         """
         初始化
@@ -53,9 +54,12 @@ class LiveTrader:
             True=模拟盘（本地撮合），False=实盘（真实交易）
         enable_rpc : bool
             是否启用 RPC 服务（供 Web Dashboard 连接）
+        xt_account : str
+            迅投研账号（用于连接 XT 网关）
         """
         self.paper_trading = paper_trading
         self.enable_rpc = enable_rpc
+        self.xt_account = xt_account
 
         self.event_engine = EventEngine()
         self.main_engine = MainEngine(self.event_engine)
@@ -134,8 +138,14 @@ class LiveTrader:
 
                 # 迅投登录配置
                 setting = {
-                    "账号类型": "股票账号",  # 或 "信用账号"
-                    "账号": "your_account",  # 替换为实际账号
+                    "账号类型": "股票账号",          # 或 "信用账号"
+                    "账号": self.xt_account,
+                    "仿真交易": "是" if self.paper_trading else "否",
+                    "股票市场": "是",                # 启用股票市场
+                    "期货市场": "否",                # 禁用期货市场
+                    "期权市场": "否",                # 禁用期权市场
+                    "QMT路径": "F:\江海证券QMT实盘_交易",            # QMT安装路径（请根据实际情况修改）
+                    "资金账号": "123456"
                 }
 
                 self.main_engine.connect(setting, self.gateway_name)
@@ -429,6 +439,9 @@ def main():
     parser.add_argument('--enable-rpc', action='store_true',default=True,
                        help='启用 RPC 服务（供 Web Dashboard 连接）')
 
+    parser.add_argument('--xt-account', default='your_account',
+                       help='迅投研账号（实盘/模拟盘需要）')
+
     args = parser.parse_args()
 
     if args.mode == 'backtest':
@@ -442,6 +455,7 @@ def main():
         trader = LiveTrader(
             paper_trading=True,
             enable_rpc=args.enable_rpc,
+            xt_account=args.xt_account,
         )
         trader.gateway_name = args.gateway  # 使用指定网关获取行情
         trader.capital = args.capital
@@ -471,6 +485,7 @@ def main():
         trader = LiveTrader(
             paper_trading=False,
             enable_rpc=args.enable_rpc,
+            xt_account=args.xt_account,
         )
         trader.gateway_name = args.gateway
         trader.capital = args.capital

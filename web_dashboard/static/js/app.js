@@ -6,13 +6,14 @@ const app = createApp({
         const token = ref('');
         const loginLoading = ref(false);
         const loginError = ref('');
-        const UserIcon = shallowRef(ElementPlusIconsVue.User);
-        const LockIcon = shallowRef(ElementPlusIconsVue.Lock);
+        // 图标用简单字符代替
+        const UserIcon = 'User';
+        const LockIcon = 'Lock';
 
         // 登录表单
         const loginForm = reactive({
-            username: '',
-            password: ''
+            username: 'admin',
+            password: 'admin'
         });
 
         // WebSocket
@@ -31,7 +32,96 @@ const app = createApp({
         const lastUpdate = ref('--');
 
         // UI 状态
-        const activeTab = ref('trading');
+        const activeTab = ref('positions');
+
+        // 交易模式
+        const tradingMode = ref({
+            mode: 'paper',
+            mode_text: '模拟盘',
+            engine: 'unknown'
+        });
+
+        // 获取交易模式
+        const fetchTradingMode = async () => {
+            try {
+                const response = await fetch('/trading_mode', {
+                    headers: { 'Authorization': `Bearer ${token.value}` }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    tradingMode.value = data;
+                }
+            } catch (error) {
+                console.error('获取交易模式失败:', error);
+            }
+        };
+
+        // 获取基础数据
+        const fetchData = async () => {
+            try {
+                // 获取账户
+                const accountRes = await fetch('/account', {
+                    headers: { 'Authorization': `Bearer ${token.value}` }
+                });
+                if (accountRes.ok) {
+                    const accounts = await accountRes.json();
+                    if (accounts.length > 0) {
+                        account.value = accounts[0];
+                    }
+                }
+
+                // 获取持仓
+                const posRes = await fetch('/position', {
+                    headers: { 'Authorization': `Bearer ${token.value}` }
+                });
+                if (posRes.ok) {
+                    positions.value = await posRes.json();
+                }
+
+                // 获取成交
+                const tradeRes = await fetch('/trade', {
+                    headers: { 'Authorization': `Bearer ${token.value}` }
+                });
+                if (tradeRes.ok) {
+                    trades.value = await tradeRes.json();
+                }
+
+                // 获取委托
+                const orderRes = await fetch('/order', {
+                    headers: { 'Authorization': `Bearer ${token.value}` }
+                });
+                if (orderRes.ok) {
+                    orders.value = await orderRes.json();
+                }
+
+                // 更新时间
+                lastUpdate.value = new Date().toLocaleString('zh-CN');
+            } catch (error) {
+                console.error('获取数据失败:', error);
+            }
+        };
+
+        // 获取K线数据（API模式）
+        const fetchKlineData = async (symbol, period = '1d') => {
+            if (!symbol) return [];
+            try {
+                const response = await fetch(`/kline/${symbol}?period=${period}`, {
+                    headers: { 'Authorization': `Bearer ${token.value}` }
+                });
+                if (response.ok) {
+                    const data = await response.json();
+                    candleData.value[symbol] = data;
+                    if (!availableSymbols.value.includes(symbol)) {
+                        availableSymbols.value.push(symbol);
+                    }
+                    updateChart();
+                    return data;
+                }
+            } catch (error) {
+                console.error('获取K线数据失败:', error);
+            }
+            return [];
+        };
 
         // 策略
         const strategies = ref([
@@ -44,6 +134,9 @@ const app = createApp({
             sell: [],
             last_update: ''
         });
+
+        // 买卖信号
+        const signals = ref([]);
 
         // 图表状态
         const selectedSymbol = ref('');
@@ -145,13 +238,25 @@ const app = createApp({
             }
         });
 
-        watch(selectedSymbol, () => {
+        watch(selectedSymbol, (newVal) => {
+            if (newVal) {
+                // API 获取历史K线
+                fetchKlineData(newVal);
+            }
             updateChart();
         });
 
         // 计算属性
         const positionValue = computed(() => {
             return positions.value.reduce((sum, p) => sum + (p.volume * (p.last_price || p.price || 0)), 0);
+        });
+
+        const dailyPnl = computed(() => {
+            return positions.value.reduce((sum, p) => sum + (p.pnl || 0), 0);
+        });
+
+        const pnlClass = computed(() => {
+            return dailyPnl.value >= 0 ? 'profit' : 'loss';
         });
 
         // 登录处理器
@@ -184,6 +289,8 @@ const app = createApp({
 
                 localStorage.setItem('vnpy_token', token.value);
                 connectWebSocket();
+                fetchTradingMode(); // 获取交易模式
+                fetchData(); // 获取初始数据
 
             } catch (error) {
                 loginError.value = error.message || '登录失败，请检查用户名和密码';
@@ -199,6 +306,8 @@ const app = createApp({
                 token.value = stored;
                 isLoggedIn.value = true;
                 connectWebSocket();
+                fetchTradingMode();
+                fetchData();
             }
         };
 
@@ -281,6 +390,44 @@ const app = createApp({
                         availableSymbols.value = [...new Set([...availableSymbols.value, data.vt_symbol])];
                     }
                     break;
+                case 'eKline.':
+                    // K线实时推送更新
+                    if (data.vt_symbol) {
+                        if (!candleData.value[data.vt_symbol]) {
+                            candleData.value[data.vt_symbol] = [];
+                        }
+                        const candles = candleData.value[data.vt_symbol];
+                        const lastCandle = candles[candles.length - 1];
+                        if (lastCandle && lastCandle.datetime === data.datetime) {
+                            candles[candles.length - 1] = data;
+                        } else {
+                            candles.push(data);
+                            if (candles.length > 500) candles.shift();
+                        }
+                        if (selectedSymbol.value === data.vt_symbol) {
+                            updateChart();
+                        }
+                    }
+                    break;
+                case 'eSignal.':
+                    // 交易信号
+                    if (data.signal === 1 || data.signal === 'buy') {
+                        stockPool.value.buy.unshift(data);
+                    } else if (data.signal === -1 || data.signal === 'sell') {
+                        stockPool.value.sell.unshift(data);
+                    }
+                    signals.value.unshift(data);
+                    if (signals.value.length > 50) signals.value = signals.value.slice(0, 50);
+                    break;
+                case 'eStrategy.':
+                    // 策略状态更新
+                    if (data.name) {
+                        const idx = strategies.value.findIndex(s => s.name === data.name);
+                        if (idx >= 0) {
+                            strategies.value[idx] = { ...strategies.value[idx], ...data };
+                        }
+                    }
+                    break;
                 default:
                     console.log('未知主题：', topic, data);
             }
@@ -329,6 +476,10 @@ const app = createApp({
 
         onMounted(() => {
             window.addEventListener('resize', handleResize);
+            // 登录后定时刷新数据
+            if (isLoggedIn.value) {
+                setInterval(fetchData, 5000);
+            }
         });
 
         onUnmounted(() => {
@@ -347,6 +498,7 @@ const app = createApp({
             LockIcon,
             wsConnected,
             wsStatus,
+            tradingMode,
             account,
             positions,
             trades,
@@ -355,18 +507,19 @@ const app = createApp({
             activeTab,
             strategies,
             stockPool,
+            signals,
             selectedSymbol,
             availableSymbols,
             stats,
             positionValue,
+            dailyPnl,
+            pnlClass,
             formatMoney,
-            toggleStrategy
+            toggleStrategy,
+            fetchKlineData
         };
     }
 });
 
 app.use(ElementPlus);
-for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
-    app.component(key, component);
-}
 app.mount('#app');
