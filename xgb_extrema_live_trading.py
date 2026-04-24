@@ -67,7 +67,7 @@ class LiveTrader:
         # 模拟盘模式：添加 PaperAccountApp 以拦截订单
         if paper_trading:
             try:
-                from vnpy_paperaccount.vnpy_paperaccount import PaperAccountApp
+                from vnpy_paperaccount import PaperAccountApp
                 self.main_engine.add_app(PaperAccountApp)
                 logger.info("✓ PaperAccountApp 已加载，订单将在本地撮合")
             except ImportError:

@@ -42,4 +42,4 @@ _templates
 # lab/
 /.mypy_cache
 *.pkl
-vnpy_paperaccount/
+
