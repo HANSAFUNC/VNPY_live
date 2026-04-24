@@ -67,7 +67,7 @@ SUB_ADDRESS = setting["sub_address"]        # 订阅服务地址
 
 SECRET_KEY = "test"                     # 数据加密密钥
 ALGORITHM = "HS256"                     # 加密算法
-ACCESS_TOKEN_EXPIRE_MINUTES = 30        # 令牌超时（分钟）
+ACCESS_TOKEN_EXPIRE_MINUTES = 9999999        # 令牌超时（分钟）
 
 
 # 实例化CryptContext用于处理哈希密码
@@ -167,7 +167,7 @@ def index() -> HTMLResponse:
         # 优先使用 web_dashboard 的 index.html（如果存在）
         web_dashboard_path: Path = Path(__file__).parent.parent.joinpath("web_dashboard/static/index.html")
         index_path: Path = web_dashboard_path if web_dashboard_path.exists() else Path(__file__).parent.joinpath("static/index.html")
-
+        print(index_path)
         if not index_path.exists():
             return HTMLResponse(f"<h1>404</h1><p>找不到页面: {index_path}</p>", status_code=404)
 
@@ -303,12 +303,13 @@ def get_trading_mode(access: bool = Depends(get_access)) -> dict:  # noqa: ARG00
     try:
         # 从RPC客户端获取引擎信息
         engines = rpc_client.get_all_engines() if hasattr(rpc_client, 'get_all_engines') else {}
-        # 尝试获取 TradeEngine 的 paper_trading 属性
+        # 检查 TradeEngine 的网关名称判断模式
         for engine_name, engine in engines.items():
-            if hasattr(engine, 'paper_trading'):
+            if hasattr(engine, 'gateway_name'):
+                is_paper = engine.gateway_name == "PAPER"
                 return {
-                    "mode": "paper" if engine.paper_trading else "live",
-                    "mode_text": "模拟盘" if engine.paper_trading else "实盘",
+                    "mode": "paper" if is_paper else "live",
+                    "mode_text": "模拟盘" if is_paper else "实盘",
                     "engine": engine_name
                 }
         # 默认返回模拟盘（如果无法确定）

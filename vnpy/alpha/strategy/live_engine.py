@@ -22,7 +22,7 @@ from vnpy.trader.object import (
     BarData, TickData, TradeData, OrderData, PositionData, AccountData,
     OrderRequest, CancelRequest, SubscribeRequest, ContractData
 )
-from vnpy.trader.constant import Interval, Direction, Offset, Status, Exchange, OrderType
+from vnpy.trader.constant import Interval, Direction, Offset, Exchange, OrderType
 
 from vnpy.alpha.lab import AlphaLab
 from vnpy.alpha.strategy.template import AlphaStrategy
@@ -32,9 +32,13 @@ from vnpy.alpha.logger import logger
 class TradeEngine(BaseEngine):
     """交易引擎
 
-    支持两种模式：
-    1. 实盘模式 (paper_trading=False): 真实订单发送到交易所
-    2. 模拟盘模式 (paper_trading=True): 使用实时行情，本地模拟撮合
+    统一交易接口，通过 MainEngine 自动区分模拟盘/实盘:
+    - 加载 vnpy_paperaccount 后: 所有订单本地模拟撮合
+    - 未加载: 订单发送到真实交易所
+
+    自动检测机制：
+    - 如果 MainEngine.get_gateway() 返回 None 或找不到网关
+      自动假设为模拟盘模式（用于统计报告）
 
     与 BacktestingEngine 保持接口兼容，方便策略无缝切换。
     """
@@ -48,22 +52,19 @@ class TradeEngine(BaseEngine):
         event_engine: EventEngine,
         lab: AlphaLab,
         gateway_name: str,
-        paper_trading: bool = False
     ) -> None:
         """初始化实盘引擎
 
         Parameters
         ----------
         main_engine : MainEngine
-            VNPY 主引擎
+            VNPY 主引擎（如果加载了 vnpy_paperaccount，会自动拦截订单）
         event_engine : EventEngine
             事件引擎
         lab : AlphaLab
             Alpha 实验室（用于加载信号）
         gateway_name : str
-            交易网关名称（如 "XT", "CTP"）
-        paper_trading : bool
-            是否为模拟盘模式（使用真实行情，本地模拟成交）
+            交易网关名称（如 "XT", "CTP", "PAPER"）
         """
         super().__init__(main_engine, event_engine, self.engine_name)
 
@@ -71,7 +72,6 @@ class TradeEngine(BaseEngine):
         self.event_engine: EventEngine = event_engine
         self.lab: AlphaLab = lab
         self.gateway_name: str = gateway_name
-        self.paper_trading: bool = paper_trading
 
         # 策略相关
         self.strategy: AlphaStrategy | None = None
@@ -220,15 +220,7 @@ class TradeEngine(BaseEngine):
         self.cash_ratio = cash_ratio
         self.trading = True
 
-        # 初始化模拟盘状态（计数器等）
-        if self.paper_trading:
-            self.initial_capital = capital
-            self.paper_positions = {}
-            self.paper_trades = []
-            self.order_count = 0
-            self.trade_count = 0
-
-        # 订阅行情（模拟/实盘统一通过网关订阅）
+        # 订阅行情（统一通过网关订阅，由 MainEngine 处理模拟/实盘）
         self.subscribe_market_data()
 
         # 初始化策略
@@ -238,8 +230,7 @@ class TradeEngine(BaseEngine):
         self._update_account()
         self._update_positions()
 
-        mode = "模拟盘" if self.paper_trading else "实盘"
-        logger.info(f"{mode}交易已启动，初始资金：{capital:,.2f}，现金利用率：{cash_ratio}")
+        logger.info(f"交易已启动，初始资金：{capital:,.2f}，现金利用率：{cash_ratio}")
 
     def _update_account(self) -> None:
         """更新账户信息"""
@@ -264,8 +255,7 @@ class TradeEngine(BaseEngine):
                 self._init_paper_account()
         except Exception as e:
             logger.warning(f"更新账户信息失败: {e}")
-            if self.paper_trading:
-                self._init_paper_account()
+            self._init_paper_account()
 
     def _update_positions(self) -> None:
         """更新持仓信息"""
@@ -279,26 +269,24 @@ class TradeEngine(BaseEngine):
                     if pos.gateway_name == self.gateway_name
                 }
             else:
-                # 无网关时使用本地
-                if self.paper_trading:
-                    self.positions = {}
+                # 无网关时使用空持仓
+                self.positions = {}
         except Exception as e:
             logger.warning(f"更新持仓信息失败: {e}")
-            if self.paper_trading:
-                self.positions = {}
+            self.positions = {}
 
     def _init_paper_account(self) -> None:
-        """初始化模拟账户"""
+        """初始化模拟账户（当无法从网关获取时使用）"""
         if not hasattr(self, '_paper_account_initialized'):
             self.account = AccountData(
                 gateway_name=self.gateway_name or "PAPER",
                 accountid="PAPER_ACCOUNT",
-                balance=self.initial_capital,
+                balance=self.capital,
                 frozen=0.0
             )
             # 手动设置可用资金
-            object.__setattr__(self.account, 'available', self.initial_capital)
-            self.cash = self.initial_capital
+            object.__setattr__(self.account, 'available', self.capital)
+            self.cash = self.capital
             self._paper_account_initialized = True
 
     def stop_trading(self) -> None:
@@ -311,57 +299,7 @@ class TradeEngine(BaseEngine):
         if self.strategy:
             self.strategy.on_stop()
 
-        # 模拟盘模式：打印交易统计
-        if self.paper_trading and hasattr(self, 'paper_trades'):
-            self._print_paper_trading_stats()
-
-        mode = "模拟盘" if self.paper_trading else "实盘"
-        logger.info(f"{mode}交易已停止")
-
-    def _print_paper_trading_stats(self) -> None:
-        """打印模拟盘交易统计"""
-        if not hasattr(self, 'paper_trades'):
-            return
-
-        total_trades = len(self.paper_trades)
-        if total_trades == 0:
-            logger.info("模拟盘：无成交记录")
-            return
-
-        # 计算盈亏
-        total_pnl = 0.0
-        buy_amount = 0.0
-        sell_amount = 0.0
-
-        for trade in self.paper_trades:
-            volume = trade.volume * self.sizes.get(trade.vt_symbol, 1)
-            amount = trade.price * volume
-            if trade.direction == Direction.LONG:
-                buy_amount += amount
-            else:
-                sell_amount += amount
-
-        # 计算持仓市值
-        holding_value = 0.0
-        for vt_symbol, pos in self.paper_positions.items():
-            tick = self.ticks.get(vt_symbol)
-            if tick:
-                holding_value += pos['volume'] * tick.last_price
-
-        current_balance = self.cash + holding_value
-        total_return = (current_balance - self.initial_capital) / self.initial_capital * 100
-
-        logger.info("=" * 60)
-        logger.info("模拟盘交易统计")
-        logger.info("=" * 60)
-        logger.info(f"总成交次数：{total_trades}")
-        logger.info(f"买入金额：{buy_amount:,.2f}")
-        logger.info(f"卖出金额：{sell_amount:,.2f}")
-        logger.info(f"当前现金：{self.cash:,.2f}")
-        logger.info(f"持仓市值：{holding_value:,.2f}")
-        logger.info(f"总资产：{current_balance:,.2f}")
-        logger.info(f"总收益率：{total_return:,.2f}%")
-        logger.info("=" * 60)
+        logger.info("交易已停止")
 
     # ==================== 事件处理 ====================
 
@@ -517,19 +455,20 @@ class TradeEngine(BaseEngine):
         price: float,
         volume: float
     ) -> list[str]:
-        """发送订单"""
+        """发送订单
+
+        注：模拟盘/实盘通过 MainEngine 自动区分
+        - 如果加载了 vnpy_paperaccount，MainEngine.send_order 会被拦截，自动本地撮合
+        - 如果没有加载，订单会发送到真实交易所
+        TradeEngine 只需统一调用 MainEngine.send_order
+        """
         if not self.trading:
             logger.warning("交易未启动，无法下单")
             return []
 
-        if self.paper_trading:
-            # 模拟盘：本地撮合
-            return self._paper_send_order(vt_symbol, direction, offset, price, volume)
-        else:
-            # 实盘：发送到交易所
-            return self._live_send_order(vt_symbol, direction, offset, price, volume)
+        return self._send_order_to_main_engine(vt_symbol, direction, offset, price, volume)
 
-    def _paper_send_order(
+    def _send_order_to_main_engine(
         self,
         vt_symbol: str,
         direction: Direction,
@@ -537,119 +476,12 @@ class TradeEngine(BaseEngine):
         price: float,
         volume: float
     ) -> list[str]:
-        """模拟盘本地撮合"""
-        symbol, exchange_str = vt_symbol.split(".")
+        """发送订单到 MainEngine
 
-        # 生成订单号
-        self.order_count += 1
-        orderid = str(self.order_count)
-        vt_orderid = f"{self.gateway_name or 'PAPER'}.{self.order_count:08d}"
-
-        # 创建订单对象
-        order = OrderData(
-            gateway_name=self.gateway_name or "PAPER",
-            symbol=symbol,
-            exchange=Exchange(exchange_str),
-            orderid=orderid,
-            type=OrderType.LIMIT,
-            direction=direction,
-            offset=offset,
-            price=round(price, 4),
-            volume=volume,
-            traded=0,
-            status=Status.SUBMITTING,
-            datetime=datetime.now()
-        )
-
-        self.active_orders[order.vt_orderid] = order
-
-        # 本地撮合
-        return self._match_paper_order(order, vt_symbol)
-
-    def _match_paper_order(self, order: OrderData, vt_symbol: str) -> list[str]:
-        """模拟盘本地撮合逻辑"""
-        direction = order.direction
-        volume = order.volume
-        price = order.price
-
-        # 检查资金/持仓是否足够
-        if direction == Direction.LONG:
-            # 买入检查资金
-            required_cash = price * volume * self.sizes.get(vt_symbol, 1)
-            if required_cash > self.cash:
-                logger.warning(f"[模拟盘] 资金不足，无法买入 {vt_symbol}，需要 {required_cash:,.2f}，"
-                              f"可用 {self.cash:,.2f}")
-                order.status = Status.REJECTED
-                return []
-        else:
-            # 卖出检查持仓
-            pos = self.paper_positions.get(vt_symbol)
-            available_volume = pos['volume'] if pos and pos['direction'] == Direction.LONG else 0
-            if available_volume < volume:
-                logger.warning(f"[模拟盘] 持仓不足，无法卖出 {vt_symbol}，需要 {volume}，"
-                              f"可用 {available_volume}")
-                order.status = Status.REJECTED
-                return []
-
-        # 模拟撮合：立即以当前最新价格成交
-        tick = self.ticks.get(vt_symbol)
-        if tick:
-            symbol, exchange_str = vt_symbol.split(".")
-
-            # 使用最新价成交
-            fill_price = tick.last_price
-            fill_volume = volume
-
-            # 更新订单状态为已成交
-            order.traded = fill_volume
-            order.status = Status.ALLTRADED
-            order.datetime = datetime.now()
-            self.active_orders.pop(order.vt_orderid, None)
-
-            # 创建成交记录
-            self.trade_count += 1
-            trade = TradeData(
-                symbol=symbol,
-                exchange=Exchange(exchange_str),
-                gateway_name=self.gateway_name or "PAPER",
-                orderid=order.orderid,
-                tradeid=str(self.trade_count),
-                vt_orderid=order.vt_orderid,
-                vt_tradeid=f"{self.gateway_name or 'PAPER'}.{self.trade_count:08d}",
-                direction=direction,
-                offset=order.offset,
-                price=fill_price,
-                volume=fill_volume,
-                datetime=datetime.now()
-            )
-
-            # 更新资金和持仓
-            self._update_paper_account(trade)
-
-            # 通知策略成交
-            if self.strategy:
-                self.strategy.update_trade(trade)
-                self.strategy.on_trade(trade)
-
-            logger.info(f"[模拟盘] 成交: {vt_symbol}, {direction.value}, "
-                       f"价格: {fill_price}, 数量: {fill_volume}")
-
-            return [order.vt_orderid]
-        else:
-            # 没有行情，无法撮合
-            logger.warning(f"[模拟盘] 无行情数据，无法撮合 {vt_symbol}")
-            order.status = Status.REJECTED
-            return []
-
-    def _live_send_order(
-        self,
-        vt_symbol: str,
-        direction: Direction,
-        offset: Offset,
-        price: float,
-        volume: float
-    ) -> list[str]:
-        """实盘发送订单到交易所"""
+        MainEngine 会根据是否加载 paperaccount 自动处理:
+        - 已加载 vnpy_paperaccount: 本地模拟撮合
+        - 未加载: 发送到真实交易所
+        """
         symbol, exchange_str = vt_symbol.split(".")
 
         req = OrderRequest(
@@ -665,85 +497,30 @@ class TradeEngine(BaseEngine):
         vt_orderid: str = self.main_engine.send_order(req, self.gateway_name)
 
         if vt_orderid:
-            logger.info(f"[实盘] 下单成功: {vt_symbol}, {direction.value}, "
+            logger.info(f"[TradeEngine] 下单: {vt_symbol}, {direction.value}, "
                        f"{offset.value}, 价格: {price}, 数量: {volume}, 订单号: {vt_orderid}")
             return [vt_orderid]
         else:
-            logger.error(f"[实盘] 下单失败: {vt_symbol}")
+            logger.error(f"[TradeEngine] 下单失败: {vt_symbol}")
             return []
 
-    def _update_paper_account(self, trade: TradeData) -> None:
-        """更新模拟盘账户"""
-        vt_symbol = f"{trade.symbol}.{trade.exchange.value}"
-        size = self.sizes.get(vt_symbol, 1)
-        amount = trade.price * trade.volume * size
-        commission_rate = self.long_rates.get(vt_symbol, 0.0005) if trade.direction == Direction.LONG else self.short_rates.get(vt_symbol, 0.0015)
-        commission = max(amount * commission_rate, 5)  # 最低5元手续费
-
-        if trade.direction == Direction.LONG:
-            # 买入：扣现金，加持仓
-            total_cost = amount + commission
-            self.cash -= total_cost
-
-            # 更新持仓
-            if vt_symbol not in self.paper_positions:
-                self.paper_positions[vt_symbol] = {
-                    'volume': 0,
-                    'price': 0,
-                    'direction': Direction.LONG
-                }
-
-            pos = self.paper_positions[vt_symbol]
-            # 计算平均成本
-            total_volume = pos['volume'] + trade.volume
-            if total_volume > 0:
-                pos['price'] = (pos['price'] * pos['volume'] + trade.price * trade.volume) / total_volume
-            pos['volume'] = total_volume
-
-            self.paper_trades.append(trade)
-
-        else:
-            # 卖出：加现金，减持仓
-            self.cash += amount - commission
-
-            # 更新持仓
-            pos = self.paper_positions.get(vt_symbol)
-            if pos:
-                pos['volume'] -= trade.volume
-                if pos['volume'] <= 0:
-                    del self.paper_positions[vt_symbol]
-
-            self.paper_trades.append(trade)
-
-        # 更新账户对象
-        if self.account:
-            holding_value = sum(
-                pos['volume'] * (self.ticks.get(sym).last_price if self.ticks.get(sym) else pos['price'])
-                for sym, pos in self.paper_positions.items()
-            )
-            self.account.balance = self.cash + holding_value
-            self.account.available = self.cash
-
     def cancel_order(self, strategy: AlphaStrategy, vt_orderid: str) -> None:
-        """撤单"""
-        if self.paper_trading:
-            # 模拟盘：直接移除订单
-            order = self.active_orders.pop(vt_orderid, None)
-            if order:
-                order.status = Status.CANCELLED
-                logger.info(f"[模拟盘] 撤单成功: {vt_orderid}")
-        else:
-            # 实盘：发送到交易所
-            order = self.main_engine.get_order(vt_orderid)
-            if not order:
-                return
+        """撤单
 
-            req = CancelRequest(
-                symbol=order.symbol,
-                exchange=order.exchange,
-                orderid=order.orderid
-            )
-            self.main_engine.cancel_order(req, self.gateway_name)
+        注：模拟盘/实盘通过 MainEngine 自动区分
+        - 如果加载了 vnpy_paperaccount，MainEngine.cancel_order 会被拦截
+        - 如果没有加载，撤单请求会发送到真实交易所
+        """
+        order = self.main_engine.get_order(vt_orderid)
+        if not order:
+            return
+
+        req = CancelRequest(
+            symbol=order.symbol,
+            exchange=order.exchange,
+            orderid=order.orderid
+        )
+        self.main_engine.cancel_order(req, self.gateway_name)
 
     def cancel_all(self) -> None:
         """撤销所有活跃订单"""
@@ -752,18 +529,22 @@ class TradeEngine(BaseEngine):
                 self.cancel_order(self.strategy, vt_orderid)
 
     def query_account(self) -> None:
-        """查询账户"""
-        if not self.paper_trading:
-            gateway = self.main_engine.get_gateway(self.gateway_name)
-            if gateway:
-                gateway.query_account()
+        """查询账户
+
+        注：如果加载了 vnpy_paperaccount，会返回模拟账户数据
+        """
+        gateway = self.main_engine.get_gateway(self.gateway_name)
+        if gateway:
+            gateway.query_account()
 
     def query_positions(self) -> None:
-        """查询持仓"""
-        if not self.paper_trading:
-            gateway = self.main_engine.get_gateway(self.gateway_name)
-            if gateway:
-                gateway.query_position()
+        """查询持仓
+
+        注：如果加载了 vnpy_paperaccount，会返回模拟持仓数据
+        """
+        gateway = self.main_engine.get_gateway(self.gateway_name)
+        if gateway:
+            gateway.query_position()
 
     # ==================== 查询接口（与 BacktestingEngine 兼容） ====================
 
@@ -801,19 +582,16 @@ class TradeEngine(BaseEngine):
         logger.info(f"[{source}] {msg}")
 
     def get_pos(self, vt_symbol: str) -> float:
-        """获取持仓"""
-        if self.paper_trading and hasattr(self, 'paper_positions'):
-            # 模拟盘：从 paper_positions 获取
-            pos = self.paper_positions.get(vt_symbol)
-            if pos:
-                return pos['volume'] if pos['direction'] == Direction.LONG else -pos['volume']
+        """获取持仓
+
+        统一从 MainEngine 获取持仓数据
+        - 如果加载了 vnpy_paperaccount，返回模拟持仓
+        - 否则返回真实持仓
+        """
+        position = self.positions.get(vt_symbol)
+        if not position:
             return 0.0
+        if position.direction == Direction.LONG:
+            return position.volume
         else:
-            # 实盘：从券商持仓获取
-            position = self.positions.get(vt_symbol)
-            if not position:
-                return 0.0
-            if position.direction == Direction.LONG:
-                return position.volume
-            else:
-                return -position.volume
+            return -position.volume

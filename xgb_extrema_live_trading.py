@@ -63,6 +63,17 @@ class LiveTrader:
 
         self.event_engine = EventEngine()
         self.main_engine = MainEngine(self.event_engine)
+
+        # 模拟盘模式：添加 PaperAccountApp 以拦截订单
+        if paper_trading:
+            try:
+                from vnpy_paperaccount.vnpy_paperaccount import PaperAccountApp
+                self.main_engine.add_app(PaperAccountApp)
+                logger.info("✓ PaperAccountApp 已加载，订单将在本地撮合")
+            except ImportError:
+                logger.warning("vnpy_paperaccount 未安装，模拟盘功能可能受限")
+                logger.warning("请安装: pip install vnpy-paperaccount")
+
         self.lab = AlphaLab(str(LAB_PATH))
         self.live_engine: TradeEngine | None = None
         self.rpc_engine = None
@@ -183,13 +194,14 @@ class LiveTrader:
         logger.info(f"设置交易策略 ({mode_str}模式)")
         logger.info("=" * 60)
 
-        # 创建 TradeEngine（不继承BaseEngine，直接添加到engines字典）
+        # 创建 TradeEngine（自动根据是否加载 paperaccount 决定模拟/实盘）
+        # 模拟盘模式下使用 "PAPER" 网关，让 PaperEngine 拦截订单
+        engine_gateway = "PAPER" if self.paper_trading else self.gateway_name
         self.live_engine = TradeEngine(
             main_engine=self.main_engine,
             event_engine=self.event_engine,
             lab=self.lab,
-            gateway_name=self.gateway_name,
-            paper_trading=self.paper_trading
+            gateway_name=engine_gateway
         )
 
         # 手动注册到 MainEngine 的 engines 字典

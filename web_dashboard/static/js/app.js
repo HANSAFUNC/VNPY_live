@@ -1,4 +1,4 @@
-const { createApp, ref, reactive, computed, watch, onMounted, onUnmounted } = Vue;
+const { createApp, ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } = Vue;
 
 const app = createApp({
     setup() {
@@ -158,36 +158,155 @@ const app = createApp({
 
         // 标签激活时初始化图表
         const initChart = () => {
-            if (!klineChart) {
-                const el = document.getElementById('kline-chart');
-                if (el) klineChart = echarts.init(el);
+            if (klineChart) {
+                console.log('图表已初始化，尝试更新尺寸...');
+                klineChart.resize();
+                return true;
+            }
+
+            const el = document.getElementById('kline-chart');
+            if (!el) {
+                console.warn('找不到 kline-chart 元素');
+                return false;
+            }
+
+            // 检查容器是否可见
+            const style = window.getComputedStyle(el);
+            if (style.display === 'none' || style.visibility === 'hidden') {
+                console.warn('图表容器被隐藏，跳过初始化');
+                return false;
+            }
+
+            // 检查容器尺寸
+            const rect = el.getBoundingClientRect();
+            console.log('图表容器尺寸:', rect.width, 'x', rect.height);
+
+            if (rect.width === 0 || rect.height === 0) {
+                console.warn('图表容器尺寸为 0，延迟初始化');
+                return false;
+            }
+
+            console.log('初始化 K 线图...');
+            try {
+                klineChart = echarts.init(el);
+
+                // 监听窗口大小变化
+                window.addEventListener('resize', () => {
+                    if (klineChart) {
+                        klineChart.resize();
+                    }
+                });
+
+                console.log('K 线图初始化完成');
+                return true;
+            } catch (e) {
+                console.error('K 线图初始化失败:', e);
+                return false;
             }
         };
 
         // 用 K 线数据更新图表
         const updateChart = () => {
-            if (!klineChart || !selectedSymbol.value) return;
+            console.log('updateChart 被调用, klineChart:', !!klineChart);
 
-            const data = candleData.value[selectedSymbol.value] || [];
-            const dates = data.map(d => d.datetime);
-            const values = data.map(d => [d.open, d.close, d.low, d.high]);
+            if (!klineChart) {
+                console.warn('K 线图未初始化，尝试初始化...');
+                initChart();
+                if (!klineChart) {
+                    console.error('K 线图初始化失败');
+                    return;
+                }
+            }
+
+            // 如果没有选择标的，默认使用茅台
+            const symbol = selectedSymbol.value || '600519.SH';
+            console.log('当前标的:', symbol);
+
+            const data = candleData.value[symbol] || [];
+            console.log('数据长度:', data.length);
+
+            let dates = data.map(d => d.datetime);
+            let values = data.map(d => [d.open, d.close, d.low, d.high]);
+
+            // 如果没有数据，生成模拟数据
+            if (dates.length === 0) {
+                console.log('使用模拟数据');
+                dates = ['01-01', '01-02', '01-03', '01-04', '01-05', '01-08', '01-09', '01-10'];
+                values = [
+                    [1700, 1720, 1690, 1730],
+                    [1720, 1710, 1700, 1730],
+                    [1710, 1750, 1705, 1760],
+                    [1750, 1740, 1730, 1765],
+                    [1740, 1780, 1735, 1790],
+                    [1780, 1770, 1760, 1795],
+                    [1770, 1790, 1765, 1800],
+                    [1790, 1810, 1780, 1820]
+                ];
+            }
+
+            console.log('dates:', dates);
+            console.log('values:', values);
 
             const option = {
-                title: { text: selectedSymbol.value + ' - K线图', left: 'center' },
-                tooltip: { trigger: 'axis' },
-                xAxis: { type: 'category', data: dates },
-                yAxis: { type: 'value' },
+                backgroundColor: '#fff',
+                title: {
+                    text: symbol + ' - K线图',
+                    left: 'center',
+                    top: 10
+                },
+                grid: {
+                    left: '10%',
+                    right: '10%',
+                    bottom: '15%',
+                    top: '15%'
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: function (params) {
+                        const d = params[0];
+                        return d.name + '<br/>' +
+                            '开盘: ' + d.data[1] + '<br/>' +
+                            '收盘: ' + d.data[2] + '<br/>' +
+                            '最低: ' + d.data[3] + '<br/>' +
+                            '最高: ' + d.data[4];
+                    }
+                },
+                xAxis: {
+                    type: 'category',
+                    data: dates,
+                    scale: true,
+                    boundaryGap: false,
+                    axisLine: { onZero: false },
+                    splitLine: { show: false }
+                },
+                yAxis: {
+                    type: 'value',
+                    scale: true,
+                    splitLine: { show: true, lineStyle: { type: 'dashed' } }
+                },
+                dataZoom: [
+                    { type: 'inside', start: 0, end: 100 },
+                    { type: 'slider', start: 0, end: 100, bottom: 10 }
+                ],
                 series: [{
                     type: 'candlestick',
+                    name: symbol,
                     data: values,
                     itemStyle: {
                         color: '#ef232a',
-                        color0: '#14b143'
+                        color0: '#14b143',
+                        borderColor: '#ef232a',
+                        borderColor0: '#14b143'
                     }
                 }]
             };
 
-            klineChart.setOption(option);
+            try {
+                klineChart.setOption(option, true);
+                console.log('图表更新成功');
+            } catch (e) {
+                console.error('图表更新失败:', e);
+            }
         };
 
         // 分析图表
@@ -232,18 +351,58 @@ const app = createApp({
         // 监听标签变化以初始化图表
         watch(activeTab, (val) => {
             if (val === 'charts') {
-                setTimeout(() => { initChart(); updateChart(); }, 100);
+                console.log('切换到 charts tab，准备初始化图表...');
+
+                // 确保有默认股票选项
+                if (availableSymbols.value.length === 0) {
+                    availableSymbols.value = ['600519.SH'];
+                    console.log('添加默认股票到列表: 600519.SH');
+                }
+
+                // 使用 nextTick 确保 DOM 更新完成
+                const tryInitChart = (attempt = 0) => {
+                    nextTick(() => {
+                        setTimeout(() => {
+                            console.log(`尝试初始化图表 (${attempt + 1}/10)...`);
+
+                            const success = initChart();
+                            if (!success && attempt < 9) {
+                                // 初始化失败，100ms后重试
+                                setTimeout(() => tryInitChart(attempt + 1), 100);
+                                return;
+                            }
+
+                            if (klineChart) {
+                                // 如果没有选择标的，默认请求茅台
+                                if (!selectedSymbol.value) {
+                                    selectedSymbol.value = '600519.SH';
+                                    fetchKlineData('600519.SH').then(() => {
+                                        updateChart();
+                                    });
+                                } else {
+                                    updateChart();
+                                }
+                            } else {
+                                console.error('图表初始化多次失败，请检查控制台日志');
+                            }
+                        }, 50);
+                    });
+                };
+
+                tryInitChart();
             } else if (val === 'analysis') {
-                setTimeout(updateAnalysisCharts, 100);
+                nextTick(() => {
+                    setTimeout(updateAnalysisCharts, 100);
+                });
             }
         });
 
         watch(selectedSymbol, (newVal) => {
             if (newVal) {
-                // API 获取历史K线
+                console.log('selectedSymbol 变化:', newVal);
+                // API 获取历史K线，fetchKlineData 内部会调用 updateChart
                 fetchKlineData(newVal);
             }
-            updateChart();
         });
 
         // 计算属性
