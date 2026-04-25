@@ -31,7 +31,8 @@ export function formatPercent(value: number | undefined | null, decimals = 2): s
 /**
  * 格式化涨跌幅颜色类名
  */
-export function getPnlClass(value: number): string {
+export function getPnlClass(value: number | undefined | null): string {
+  if (value === undefined || value === null) return '';
   return value >= 0 ? 'profit' : 'loss';
 }
 
@@ -47,8 +48,10 @@ export function formatPnl(value: number | undefined | null, decimals = 2): strin
 /**
  * 格式化时间
  */
-export function formatTime(date: Date | string | number): string {
+export function formatTime(date: Date | string | number | undefined | null): string {
+  if (date === undefined || date === null) return '--:--:--';
   const d = new Date(date);
+  if (isNaN(d.getTime())) return '--:--:--';
   return d.toLocaleTimeString('zh-CN', {
     hour: '2-digit',
     minute: '2-digit',
@@ -59,8 +62,10 @@ export function formatTime(date: Date | string | number): string {
 /**
  * 格式化日期时间
  */
-export function formatDateTime(date: Date | string | number): string {
+export function formatDateTime(date: Date | string | number | undefined | null): string {
+  if (date === undefined || date === null) return '--';
   const d = new Date(date);
+  if (isNaN(d.getTime())) return '--';
   return d.toLocaleString('zh-CN', {
     year: 'numeric',
     month: '2-digit',
@@ -74,8 +79,10 @@ export function formatDateTime(date: Date | string | number): string {
 /**
  * 格式化日期
  */
-export function formatDate(date: Date | string | number): string {
+export function formatDate(date: Date | string | number | undefined | null): string {
+  if (date === undefined || date === null) return '--';
   const d = new Date(date);
+  if (isNaN(d.getTime())) return '--';
   return d.toLocaleDateString('zh-CN', {
     year: 'numeric',
     month: '2-digit',

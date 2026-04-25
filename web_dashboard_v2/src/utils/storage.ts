@@ -36,19 +36,31 @@ export function removeItem(key: string): void {
  * 获取 Token
  */
 export function getToken(): string | null {
-  return localStorage.getItem('vnpy_token');
+  try {
+    return localStorage.getItem('vnpy_token');
+  } catch {
+    return null;
+  }
 }
 
 /**
  * 设置 Token
  */
 export function setToken(token: string): void {
-  localStorage.setItem('vnpy_token', token);
+  try {
+    localStorage.setItem('vnpy_token', token);
+  } catch (e) {
+    console.error('Storage setToken failed:', e);
+  }
 }
 
 /**
  * 清除 Token
  */
 export function clearToken(): void {
-  localStorage.removeItem('vnpy_token');
+  try {
+    localStorage.removeItem('vnpy_token');
+  } catch (e) {
+    console.error('Storage clearToken failed:', e);
+  }
 }
