@@ -110,7 +110,10 @@ class XGBoostExtremaSelector:
         # 加载成分股数据（从计算的开始时间到 end）
         # AlphaLabV2: load_bar_df 不需要 symbols 参数，自动从 index_code 获取
         df = self.lab.load_bar_df(
-            self.interval, data_start_str, self.end, 0
+            start=data_start_str,
+            end=self.end,
+            interval=self.interval,
+            extended_days=0
         )
 
         # 检查数据是否足够，不足时尝试下载
@@ -215,7 +218,10 @@ class XGBoostExtremaSelector:
 
             # 重新加载数据
             df = self.lab.load_bar_df(
-                symbols, self.interval, required_start, self.end, 0
+                start=required_start,
+                end=self.end,
+                interval=self.interval,
+                extended_days=0
             )
 
             # 再次检查
