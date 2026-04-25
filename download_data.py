@@ -175,6 +175,7 @@ def download_data(start_date: str, end_date: str, lab_path: str = "./lab"):
                     # 检查是否已覆盖请求的范围
                     if existing_start <= request_start and existing_end >= request_end:
                         skip_count += 1
+                        print(f"   [跳过] {vt_symbol}: 已有数据 {existing_start.date()} ~ {existing_end.date()}")
                         continue
 
             req = HistoryRequest(
