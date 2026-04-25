@@ -58,8 +58,8 @@ class AlphaLabV2:
         self.data_store = DataStore(str(self.root), data_source)
         self.index_manager = IndexManager(str(self.root))
 
-        # 项目目录
-        self.project_path = self.root / "project" / project_name
+        # 项目目录（直接在 lab/ 下）
+        self.project_path = self.root / project_name
         self.dataset_path = self.project_path / "dataset"
         self.model_path = self.project_path / "model"
         self.signal_path = self.project_path / "signal"

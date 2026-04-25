@@ -84,8 +84,8 @@ def migrate_lab(old_lab_path: str, new_lab_path: str):
     for dir_name in old_project_dirs:
         old_dir = old_path / dir_name
         if old_dir.exists():
-            # 默认迁移到 project/default 下
-            new_project_dir = new_path / "project" / "default" / dir_name
+            # 默认迁移到 default 下（直接放在 lab/ 下）
+            new_project_dir = new_path / "default" / dir_name
             new_project_dir.mkdir(parents=True, exist_ok=True)
 
             for file in old_dir.glob("*"):
@@ -97,7 +97,7 @@ def migrate_lab(old_lab_path: str, new_lab_path: str):
     print("\n4. 迁移合约配置...")
     old_contract = old_path / "contract.json"
     if old_contract.exists():
-        new_contract = new_path / "project" / "default" / "contract.json"
+        new_contract = new_path / "default" / "contract.json"
         new_contract.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(old_contract, new_contract)
         print(f"   [OK] contract.json -> {new_contract}")
@@ -110,7 +110,7 @@ def migrate_lab(old_lab_path: str, new_lab_path: str):
     print("目录结构:")
     print(f"  - K线数据: {data_store.daily_path}")
     print(f"  - 成分股:  {index_manager.index_path}/all_a")
-    print(f"  - 项目:    {new_path}/project/default")
+    print(f"  - 项目:    {new_path}/default")
     print()
     print("提示：修改你的代码使用 AlphaLabV2:")
     print("  from vnpy.alpha.lab_v2 import AlphaLabV2")
