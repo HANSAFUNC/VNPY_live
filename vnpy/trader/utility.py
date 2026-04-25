@@ -9,7 +9,7 @@ from pathlib import Path
 from collections.abc import Callable
 from decimal import Decimal
 from math import floor, ceil
-from typing import overload, Literal
+from typing import overload, Literal, Optional, Union, Tuple
 
 import numpy as np
 import talib
@@ -203,27 +203,27 @@ class BarGenerator:
         self,
         on_bar: Callable,
         window: int = 0,
-        on_window_bar: Callable | None = None,
+        on_window_bar: Optional[Callable] = None,
         interval: Interval = Interval.MINUTE,
-        daily_end: time | None = None
+        daily_end: Optional[time] = None
     ) -> None:
         """Constructor"""
-        self.bar: BarData | None = None
+        self.bar: Optional[BarData] = None
         self.on_bar: Callable = on_bar
 
         self.interval: Interval = interval
         self.interval_count: int = 0
 
-        self.hour_bar: BarData | None = None
-        self.daily_bar: BarData | None = None
+        self.hour_bar: Optional[BarData] = None
+        self.daily_bar: Optional[BarData] = None
 
         self.window: int = window
-        self.window_bar: BarData | None = None
-        self.on_window_bar: Callable | None = on_window_bar
+        self.window_bar: Optional[BarData] = None
+        self.on_window_bar: Optional[Callable] = on_window_bar
 
-        self.last_tick: TickData | None = None
+        self.last_tick: Optional[TickData] = None
 
-        self.daily_end: time | None = daily_end
+        self.daily_end: Optional[time] = daily_end
         if self.interval == Interval.DAILY and not self.daily_end:
             raise RuntimeError(_("合成日K线必须传入每日收盘时间"))
 
@@ -354,7 +354,7 @@ class BarGenerator:
             )
             return
 
-        finished_bar: BarData | None = None
+        finished_bar: Optional[BarData] = None
 
         # If minute is 59, update minute bar into window bar and push
         if bar.datetime.minute == 59:
@@ -497,11 +497,11 @@ class BarGenerator:
 
             self.daily_bar = None
 
-    def generate(self) -> BarData | None:
+    def generate(self) -> Optional[BarData]:
         """
         Generate the bar data and call callback immediately.
         """
-        bar: BarData | None = self.bar
+        bar: Optional[BarData] = self.bar
 
         if bar:
             bar.datetime = bar.datetime.replace(second=0, microsecond=0)
@@ -609,7 +609,7 @@ class ArrayManager:
     def sma(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def sma(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def sma(self, n: int, array: bool = False) -> float | np.ndarray:
+    def sma(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         Simple moving average.
         """
@@ -624,7 +624,7 @@ class ArrayManager:
     def ema(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def ema(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def ema(self, n: int, array: bool = False) -> float | np.ndarray:
+    def ema(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         Exponential moving average.
         """
@@ -639,7 +639,7 @@ class ArrayManager:
     def kama(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def kama(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def kama(self, n: int, array: bool = False) -> float | np.ndarray:
+    def kama(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         KAMA.
         """
@@ -654,7 +654,7 @@ class ArrayManager:
     def wma(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def wma(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def wma(self, n: int, array: bool = False) -> float | np.ndarray:
+    def wma(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         WMA.
         """
@@ -675,7 +675,7 @@ class ArrayManager:
         slow_period: int,
         matype: int = 0,
         array: bool = False
-    ) -> float | np.ndarray:
+    ) -> Union[float, np.ndarray]:
         """
         APO.
         """
@@ -690,7 +690,7 @@ class ArrayManager:
     def cmo(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def cmo(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def cmo(self, n: int, array: bool = False) -> float | np.ndarray:
+    def cmo(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         CMO.
         """
@@ -705,7 +705,7 @@ class ArrayManager:
     def mom(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def mom(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def mom(self, n: int, array: bool = False) -> float | np.ndarray:
+    def mom(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         MOM.
         """
@@ -726,7 +726,7 @@ class ArrayManager:
         slow_period: int,
         matype: int = 0,
         array: bool = False
-    ) -> float | np.ndarray:
+    ) -> Union[float, np.ndarray]:
         """
         PPO.
         """
@@ -741,7 +741,7 @@ class ArrayManager:
     def roc(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def roc(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def roc(self, n: int, array: bool = False) -> float | np.ndarray:
+    def roc(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         ROC.
         """
@@ -756,7 +756,7 @@ class ArrayManager:
     def rocr(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def rocr(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def rocr(self, n: int, array: bool = False) -> float | np.ndarray:
+    def rocr(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         ROCR.
         """
@@ -771,7 +771,7 @@ class ArrayManager:
     def rocp(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def rocp(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def rocp(self, n: int, array: bool = False) -> float | np.ndarray:
+    def rocp(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         ROCP.
         """
@@ -786,7 +786,7 @@ class ArrayManager:
     def rocr_100(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def rocr_100(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def rocr_100(self, n: int, array: bool = False) -> float | np.ndarray:
+    def rocr_100(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         ROCR100.
         """
@@ -801,7 +801,7 @@ class ArrayManager:
     def trix(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def trix(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def trix(self, n: int, array: bool = False) -> float | np.ndarray:
+    def trix(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         TRIX.
         """
@@ -816,7 +816,7 @@ class ArrayManager:
     def std(self, n: int, nbdev: int = 1, array: Literal[False] = False) -> float: ...
     @overload
     def std(self, n: int, nbdev: int = 1, *, array: Literal[True]) -> np.ndarray: ...
-    def std(self, n: int, nbdev: int = 1, array: bool = False) -> float | np.ndarray:
+    def std(self, n: int, nbdev: int = 1, array: bool = False) -> Union[float, np.ndarray]:
         """
         Standard deviation.
         """
@@ -831,7 +831,7 @@ class ArrayManager:
     def obv(self, array: Literal[False] = False) -> float: ...
     @overload
     def obv(self, array: Literal[True]) -> np.ndarray: ...
-    def obv(self, array: bool = False) -> float | np.ndarray:
+    def obv(self, array: bool = False) -> Union[float, np.ndarray]:
         """
         OBV.
         """
@@ -846,7 +846,7 @@ class ArrayManager:
     def cci(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def cci(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def cci(self, n: int, array: bool = False) -> float | np.ndarray:
+    def cci(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         Commodity Channel Index (CCI).
         """
@@ -861,7 +861,7 @@ class ArrayManager:
     def atr(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def atr(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def atr(self, n: int, array: bool = False) -> float | np.ndarray:
+    def atr(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         Average True Range (ATR).
         """
@@ -876,7 +876,7 @@ class ArrayManager:
     def natr(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def natr(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def natr(self, n: int, array: bool = False) -> float | np.ndarray:
+    def natr(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         NATR.
         """
@@ -891,7 +891,7 @@ class ArrayManager:
     def rsi(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def rsi(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def rsi(self, n: int, array: bool = False) -> float | np.ndarray:
+    def rsi(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         Relative Strenght Index (RSI).
         """
@@ -912,7 +912,7 @@ class ArrayManager:
         slow_period: int,
         signal_period: int,
         array: bool = False
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray] | tuple[float, float, float]:
+    ) -> Union[Tuple[np.ndarray, np.ndarray, np.ndarray], Tuple[float, float, float]]:
         """
         MACD.
         """
@@ -927,7 +927,7 @@ class ArrayManager:
     def adx(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def adx(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def adx(self, n: int, array: bool = False) -> float | np.ndarray:
+    def adx(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         ADX.
         """
@@ -942,7 +942,7 @@ class ArrayManager:
     def adxr(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def adxr(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def adxr(self, n: int, array: bool = False) -> float | np.ndarray:
+    def adxr(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         ADXR.
         """
@@ -957,7 +957,7 @@ class ArrayManager:
     def dx(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def dx(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def dx(self, n: int, array: bool = False) -> float | np.ndarray:
+    def dx(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         DX.
         """
@@ -972,7 +972,7 @@ class ArrayManager:
     def minus_di(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def minus_di(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def minus_di(self, n: int, array: bool = False) -> float | np.ndarray:
+    def minus_di(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         MINUS_DI.
         """
@@ -987,7 +987,7 @@ class ArrayManager:
     def plus_di(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def plus_di(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def plus_di(self, n: int, array: bool = False) -> float | np.ndarray:
+    def plus_di(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         PLUS_DI.
         """
@@ -1002,7 +1002,7 @@ class ArrayManager:
     def willr(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def willr(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def willr(self, n: int, array: bool = False) -> float | np.ndarray:
+    def willr(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         WILLR.
         """
@@ -1023,7 +1023,7 @@ class ArrayManager:
         time_period2: int = 14,
         time_period3: int = 28,
         array: bool = False
-    ) -> float | np.ndarray:
+    ) -> Union[float, np.ndarray]:
         """
         Ultimate Oscillator.
         """
@@ -1038,7 +1038,7 @@ class ArrayManager:
     def trange(self, array: Literal[False] = False) -> float: ...
     @overload
     def trange(self, array: Literal[True]) -> np.ndarray: ...
-    def trange(self, array: bool = False) -> float | np.ndarray:
+    def trange(self, array: bool = False) -> Union[float, np.ndarray]:
         """
         TRANGE.
         """
@@ -1058,7 +1058,7 @@ class ArrayManager:
         n: int,
         dev: float,
         array: bool = False
-    ) -> tuple[np.ndarray, np.ndarray] | tuple[float, float]:
+    ) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[float, float]]:
         """
         Bollinger Channel.
         """
@@ -1085,7 +1085,7 @@ class ArrayManager:
         n: int,
         dev: float,
         array: bool = False
-    ) -> tuple[np.ndarray, np.ndarray] | tuple[float, float]:
+    ) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[float, float]]:
         """
         Keltner Channel.
         """
@@ -1109,7 +1109,7 @@ class ArrayManager:
     def donchian(self, n: int, array: Literal[True]) -> tuple[np.ndarray, np.ndarray]: ...
     def donchian(
         self, n: int, array: bool = False
-    ) -> tuple[np.ndarray, np.ndarray] | tuple[float, float]:
+    ) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[float, float]]:
         """
         Donchian Channel.
         """
@@ -1128,7 +1128,7 @@ class ArrayManager:
         self,
         n: int,
         array: bool = False
-    ) -> tuple[np.ndarray, np.ndarray] | tuple[float, float]:
+    ) -> Union[Tuple[np.ndarray, np.ndarray], Tuple[float, float]]:
         """
         Aroon indicator.
         """
@@ -1142,7 +1142,7 @@ class ArrayManager:
     def aroonosc(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def aroonosc(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def aroonosc(self, n: int, array: bool = False) -> float | np.ndarray:
+    def aroonosc(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         Aroon Oscillator.
         """
@@ -1158,7 +1158,7 @@ class ArrayManager:
     def minus_dm(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def minus_dm(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def minus_dm(self, n: int, array: bool = False) -> float | np.ndarray:
+    def minus_dm(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         MINUS_DM.
         """
@@ -1174,7 +1174,7 @@ class ArrayManager:
     def plus_dm(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def plus_dm(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def plus_dm(self, n: int, array: bool = False) -> float | np.ndarray:
+    def plus_dm(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         PLUS_DM.
         """
@@ -1190,7 +1190,7 @@ class ArrayManager:
     def mfi(self, n: int, array: Literal[False] = False) -> float: ...
     @overload
     def mfi(self, n: int, array: Literal[True]) -> np.ndarray: ...
-    def mfi(self, n: int, array: bool = False) -> float | np.ndarray:
+    def mfi(self, n: int, array: bool = False) -> Union[float, np.ndarray]:
         """
         Money Flow Index.
         """
@@ -1205,7 +1205,7 @@ class ArrayManager:
     def ad(self, array: Literal[False] = False) -> float: ...
     @overload
     def ad(self, array: Literal[True]) -> np.ndarray: ...
-    def ad(self, array: bool = False) -> float | np.ndarray:
+    def ad(self, array: bool = False) -> Union[float, np.ndarray]:
         """
         AD.
         """
@@ -1225,7 +1225,7 @@ class ArrayManager:
         fast_period: int,
         slow_period: int,
         array: bool = False
-    ) -> float | np.ndarray:
+    ) -> Union[float, np.ndarray]:
         """
         ADOSC.
         """
@@ -1240,7 +1240,7 @@ class ArrayManager:
     def bop(self, array: Literal[False] = False) -> float: ...
     @overload
     def bop(self, array: Literal[True]) -> np.ndarray: ...
-    def bop(self, array: bool = False) -> float | np.ndarray:
+    def bop(self, array: bool = False) -> Union[float, np.ndarray]:
         """
         BOP.
         """
@@ -1264,7 +1264,7 @@ class ArrayManager:
         slowd_period: int,
         slowd_matype: int,
         array: bool = False
-    ) -> tuple[float, float] | tuple[np.ndarray, np.ndarray]:
+    ) -> Union[Tuple[float, float], Tuple[np.ndarray, np.ndarray]]:
         """
         Stochastic Indicator
         """
@@ -1286,7 +1286,7 @@ class ArrayManager:
     def sar(self, acceleration: float, maximum: float, array: Literal[False] = False) -> float: ...
     @overload
     def sar(self, acceleration: float, maximum: float, array: Literal[True]) -> np.ndarray: ...
-    def sar(self, acceleration: float, maximum: float, array: bool = False) -> float | np.ndarray:
+    def sar(self, acceleration: float, maximum: float, array: bool = False) -> Union[float, np.ndarray]:
         """
         SAR.
         """

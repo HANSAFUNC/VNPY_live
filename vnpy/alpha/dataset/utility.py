@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Union
+from typing import Union, Optional
 
 import polars as pl
 
@@ -171,7 +171,7 @@ def calculate_by_polars(df: pl.DataFrame, expression: pl.expr.expr.Expr) -> pl.D
     ])
 
 
-def to_datetime(arg: datetime | str) -> datetime:
+def to_datetime(arg: Union[datetime, str]) -> datetime:
     """Convert time data type"""
     if isinstance(arg, str):
         if "-" in arg:

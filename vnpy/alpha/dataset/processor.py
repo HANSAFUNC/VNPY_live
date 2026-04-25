@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional, Union, Dict, List, Tuple, Any
 
 import numpy as np
 import polars as pl
@@ -21,9 +22,9 @@ class FreqaiFeaturePipeline:
     def __init__(
         self,
         threshold: float = 0.0,
-        feature_range: tuple = (-1, 1),
+        feature_range: Tuple = (-1, 1),
         dataset=None,
-        di_threshold: float | None = None,
+        di_threshold: Optional[float] = None,
         n_jobs: int = -1,
     ):
         """初始化管道
@@ -45,7 +46,7 @@ class FreqaiFeaturePipeline:
         self.feature_range = feature_range
         self.di_threshold = di_threshold
         self.n_jobs = n_jobs
-        self.pipeline: Pipeline | None = None
+        self.pipeline: Optional[Pipeline] = None
         self.feature_cols: list[str] = []
         self._dataset = dataset
 
@@ -53,7 +54,7 @@ class FreqaiFeaturePipeline:
         if dataset is not None:
             self._auto_fit_and_add(dataset)
 
-    def _prepare_data(self, df: pl.DataFrame) -> tuple[np.ndarray, list[str]]:
+    def _prepare_data(self, df: pl.DataFrame) -> Tuple[np.ndarray, List[str]]:
         """准备数据
 
         参数
@@ -208,7 +209,7 @@ class FreqaiFeaturePipeline:
 
         return pl.from_pandas(pdf)
 
-    def inverse_transform_predictions(self, predictions: np.ndarray, feature_cols: list[str] | None = None, target_col: str | None = None) -> dict[str, np.ndarray] | np.ndarray:
+    def inverse_transform_predictions(self, predictions: np.ndarray, feature_cols: Optional[List[str]] = None, target_col: Optional[str] = None) -> Union[Dict[str, np.ndarray], np.ndarray]:
         """逆向转换预测值到原始特征空间
 
         将归一化空间（-1 到 1）的预测值转换回原始数据范围。
@@ -411,7 +412,7 @@ def process_freqai_feature_pipeline(
     return pipeline.transform(df)
 
 
-def process_drop_na(df: pl.DataFrame, names: list[str] | None = None) -> pl.DataFrame:
+def process_drop_na(df: pl.DataFrame, names: Optional[List[str]] = None) -> pl.DataFrame:
     """Remove rows with missing values"""
     if names is None:
         names = df.columns[2:-1]
@@ -481,8 +482,8 @@ def process_cs_norm(
 
 def process_robust_zscore_norm(
     df: pl.DataFrame,
-    fit_start_time: datetime | str | None = None,
-    fit_end_time: datetime | str | None = None,
+    fit_start_time: Optional[Union[datetime, str]] = None,
+    fit_end_time: Optional[Union[datetime, str]] = None,
     clip_outlier: bool = True
 ) -> pl.DataFrame:
     """Robust Z-Score normalization"""

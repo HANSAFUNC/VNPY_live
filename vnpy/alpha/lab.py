@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from collections import defaultdict
 from functools import lru_cache
+from typing import Optional, Union
 
 import polars as pl
 

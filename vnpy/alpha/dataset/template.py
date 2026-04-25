@@ -1,6 +1,6 @@
 import time
 from datetime import datetime
-from typing import cast
+from typing import cast, Optional, Union, Dict, List, Tuple
 from collections.abc import Callable
 from multiprocessing import get_context
 from multiprocessing.context import BaseContext
@@ -47,7 +47,7 @@ class AlphaDataset:
             Segment.TEST: test_period
         }
 
-        self.feature_expressions: dict[str, str | pl.expr.expr.Expr] = {}
+        self.feature_expressions: Dict[str, Union[str, pl.expr.Expr]] = {}
         self.feature_results: dict[str, pl.DataFrame] = {}
         self.label_expression: str = ""
 
@@ -58,8 +58,8 @@ class AlphaDataset:
     def add_feature(
         self,
         name: str,
-        expression: str | pl.expr.expr.Expr | None = None,
-        result: pl.DataFrame | None = None
+        expression: Optional[Union[str, pl.expr.Expr]] = None,
+        result: Optional[pl.DataFrame] = None
     ) -> None:
         """
         Add a feature expression
@@ -87,7 +87,7 @@ class AlphaDataset:
         else:
             self.learn_processors.append(processor)
 
-    def prepare_data(self, filters: dict | None = None, max_workers: int | None = None) -> None:
+    def prepare_data(self, filters: Optional[Dict] = None, max_workers: Optional[int] = None) -> None:
         """
         Generate required data
         """
@@ -95,7 +95,7 @@ class AlphaDataset:
         results: list = []
 
         # Iterate through expressions for calculation
-        expressions: list[tuple[str, str | pl.expr.expr.Expr]] = list(self.feature_expressions.items())
+        expressions: List[Tuple[str, Union[str, pl.expr.Expr]]] = list(self.feature_expressions.items())
 
         if self.label_expression:
             expressions.append(("label", self.label_expression))
@@ -271,7 +271,7 @@ class AlphaDataset:
         create_full_tear_sheet(clean_data)
 
 
-def query_by_time(df: pl.DataFrame, start: datetime | str = "", end: datetime | str = "") -> pl.DataFrame:
+def query_by_time(df: pl.DataFrame, start: Union[datetime, str] = "", end: Union[datetime, str] = "") -> pl.DataFrame:
     """
     Filter DataFrame based on time range
     """
@@ -286,7 +286,7 @@ def query_by_time(df: pl.DataFrame, start: datetime | str = "", end: datetime | 
     return df.sort(["datetime", "vt_symbol"])
 
 
-def calculate_feature(args: tuple[pl.DataFrame, str, str | pl.expr.expr.Expr]) -> pl.Series:
+def calculate_feature(args: Tuple[pl.DataFrame, str, Union[str, pl.expr.Expr]]) -> pl.Series:
     """
     Calculate feature by expression
     """
