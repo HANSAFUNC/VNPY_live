@@ -32,7 +32,48 @@ const app = createApp({
         const lastUpdate = ref('--');
 
         // UI 状态
-        const activeTab = ref('positions');
+        const activeTab = ref('dashboard');
+
+        // Dashboard 状态
+        const closedTrades = ref([]);
+        const dashboardMetrics = computed(() => [
+            { label: '总资产', value: formatMoney(account.value.balance), color: '#409eff' },
+            { label: '可用资金', value: formatMoney(account.value.available), color: '#67c23a' },
+            { label: '持仓市值', value: formatMoney(positionValue.value), color: '#e6a23c' },
+            { label: '今日盈亏', value: formatMoney(dailyPnl.value), color: dailyPnl.value >= 0 ? '#67c23a' : '#f56c6c' }
+        ]);
+
+        // Trade 状态
+        const tradeForm = reactive({ direction: 'buy', price: 0, volume: 100 });
+        const stockList = ref([]);
+        const stockSearch = ref('');
+        const filteredStocks = computed(() => {
+            if (!stockSearch.value) return stockList.value;
+            const kw = stockSearch.value.toLowerCase();
+            return stockList.value.filter(s =>
+                (s.symbol && s.symbol.toLowerCase().includes(kw)) ||
+                (s.name && s.name.toLowerCase().includes(kw))
+            );
+        });
+        const selectedStock = computed(() => {
+            return stockList.value.find(s => s.symbol === selectedSymbol.value) || null;
+        });
+
+        // Logs 状态
+        const logFilter = reactive({ level: 'all', source: 'all', keyword: '' });
+        const logs = ref([]);
+        const filteredLogs = computed(() => {
+            return logs.value.filter(log => {
+                if (logFilter.level !== 'all' && log.level !== logFilter.level) return false;
+                if (logFilter.source !== 'all' && log.source !== logFilter.source) return false;
+                if (logFilter.keyword && !log.message.includes(logFilter.keyword)) return false;
+                return true;
+            });
+        });
+        const getLogLevelColor = (level) => {
+            const colors = { DEBUG: '#909399', INFO: '#409eff', WARNING: '#e6a23c', ERROR: '#f56c6c', CRITICAL: '#f56c6c' };
+            return colors[level] || '#909399';
+        };
 
         // 交易模式
         const tradingMode = ref({
@@ -350,7 +391,26 @@ const app = createApp({
 
         // 监听标签变化以初始化图表
         watch(activeTab, (val) => {
-            if (val === 'charts') {
+            if (val === 'trade') {
+                nextTick(() => {
+                    const tryInit = (attempt = 0) => {
+                        setTimeout(() => {
+                            const success = initChart();
+                            if (!success && attempt < 9) {
+                                setTimeout(() => tryInit(attempt + 1), 100);
+                                return;
+                            }
+                            if (klineChart && selectedSymbol.value) {
+                                updateChart();
+                            }
+                        }, 50);
+                    };
+                    tryInit();
+                });
+                fetchStockList();
+            } else if (val === 'logs') {
+                fetchLogs();
+            } else if (val === 'charts') {
                 console.log('切换到 charts tab，准备初始化图表...');
 
                 // 确保有默认股票选项
@@ -623,6 +683,76 @@ const app = createApp({
             console.log('切换策略：', s.name, s.running);
         };
 
+        // 选择股票
+        const selectStock = (stock) => {
+            selectedSymbol.value = stock.symbol;
+            tradeForm.price = stock.price || 0;
+        };
+
+        // 切换K线周期
+        const changePeriod = (period) => {
+            if (selectedSymbol.value) {
+                fetchKlineData(selectedSymbol.value, period);
+            }
+        };
+
+        // 获取股票列表
+        const fetchStockList = async () => {
+            try {
+                const response = await fetch('/stock_list', {
+                    headers: { 'Authorization': `Bearer ${token.value}` }
+                });
+                if (response.ok) {
+                    stockList.value = await response.json();
+                }
+            } catch (error) {
+                console.error('获取股票列表失败:', error);
+            }
+        };
+
+        // 提交订单
+        const submitOrder = async () => {
+            try {
+                const response = await fetch('/order', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${token.value}`,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        symbol: selectedSymbol.value,
+                        direction: tradeForm.direction,
+                        price: tradeForm.price,
+                        volume: tradeForm.volume
+                    })
+                });
+                if (response.ok) {
+                    fetchData();
+                }
+            } catch (error) {
+                console.error('提交订单失败:', error);
+            }
+        };
+
+        // 获取日志
+        const fetchLogs = async () => {
+            try {
+                const response = await fetch('/logs', {
+                    headers: { 'Authorization': `Bearer ${token.value}` }
+                });
+                if (response.ok) {
+                    logs.value = await response.json();
+                }
+            } catch (error) {
+                console.error('获取日志失败:', error);
+            }
+        };
+
+        // 清空日志
+        const clearLogs = () => {
+            logs.value = [];
+        };
+
         // 初始化
         checkStoredToken();
 
@@ -675,7 +805,22 @@ const app = createApp({
             pnlClass,
             formatMoney,
             toggleStrategy,
-            fetchKlineData
+            fetchKlineData,
+            dashboardMetrics,
+            closedTrades,
+            tradeForm,
+            selectedStock,
+            stockSearch,
+            filteredStocks,
+            logFilter,
+            logs,
+            filteredLogs,
+            getLogLevelColor,
+            selectStock,
+            changePeriod,
+            submitOrder,
+            fetchLogs,
+            clearLogs
         };
     }
 });
