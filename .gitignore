@@ -50,3 +50,8 @@ _templates
 
 # Node.js
 node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
