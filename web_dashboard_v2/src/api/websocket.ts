@@ -10,6 +10,7 @@ class WebSocketManager {
   private handlers: Map<string, MessageHandler[]> = new Map();
   private reconnectCount = 0;
   private maxReconnectCount = 5;
+  private intentionalClose = false;
 
   public readonly isConnected = ref(false);
   public readonly statusText = computed(() =>
@@ -17,6 +18,14 @@ class WebSocketManager {
   );
 
   connect(): void {
+    // 防止重复连接
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+
+    this.intentionalClose = false;
+
     const token = getToken();
     if (!token) return;
 
@@ -42,7 +51,9 @@ class WebSocketManager {
     this.ws.onclose = () => {
       console.log('WebSocket closed');
       this.isConnected.value = false;
-      this.scheduleReconnect();
+      if (!this.intentionalClose) {
+        this.scheduleReconnect();
+      }
     };
 
     this.ws.onerror = (error) => {
@@ -51,6 +62,7 @@ class WebSocketManager {
   }
 
   disconnect(): void {
+    this.intentionalClose = true;
     if (this.reconnectTimer !== null) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
