@@ -151,12 +151,29 @@ def download_data(start_date: str, end_date: str, lab_path: str = "./lab"):
             # 检查本地已有数据
             existing_info = data_store.get_data_info(vt_symbol, Interval.DAILY)
             if existing_info:
-                existing_start = datetime.fromisoformat(existing_info['start']) if existing_info['start'] else None
-                existing_end = datetime.fromisoformat(existing_info['end']) if existing_info['end'] else None
+                existing_start_str = existing_info.get('start')
+                existing_end_str = existing_info.get('end')
 
-                # 检查是否已覆盖请求的范围
-                if existing_start and existing_end:
-                    if existing_start <= start_dt and existing_end >= end_dt:
+                if existing_start_str and existing_end_str:
+                    # 解析时间（处理带时区和不带时区的情况）
+                    try:
+                        existing_start = datetime.fromisoformat(existing_start_str.replace('Z', '+00:00'))
+                        existing_end = datetime.fromisoformat(existing_end_str.replace('Z', '+00:00'))
+                    except ValueError:
+                        existing_start = datetime.fromisoformat(existing_start_str)
+                        existing_end = datetime.fromisoformat(existing_end_str)
+
+                    # 统一转为无时区比较
+                    if existing_start.tzinfo:
+                        existing_start = existing_start.replace(tzinfo=None)
+                    if existing_end.tzinfo:
+                        existing_end = existing_end.replace(tzinfo=None)
+
+                    request_start = start_dt.replace(tzinfo=None)
+                    request_end = end_dt.replace(tzinfo=None)
+
+                    # 检查是否已覆盖请求的范围
+                    if existing_start <= request_start and existing_end >= request_end:
                         skip_count += 1
                         continue
 
