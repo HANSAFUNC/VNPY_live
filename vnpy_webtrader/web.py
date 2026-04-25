@@ -12,6 +12,7 @@ import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 import secrets
+from collections import deque
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, status, Depends, Query
 from fastapi.responses import HTMLResponse
@@ -78,6 +79,21 @@ oauth2_scheme: OAuth2PasswordBearer = OAuth2PasswordBearer(tokenUrl="token")
 
 # RPC客户端
 rpc_client: RpcClient = None
+
+# 日志存储（内存中，最多1000条）
+logs_buffer: deque = deque(maxlen=1000)
+
+
+def add_log(level: str, source: str, message: str) -> None:
+    """添加日志到缓冲区"""
+    log_entry = {
+        'id': len(logs_buffer),
+        'time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'level': level,
+        'source': source,
+        'message': message
+    }
+    logs_buffer.append(log_entry)
 
 
 def to_dict(o: object) -> dict:
@@ -335,6 +351,31 @@ def get_kline_data(
     except Exception as e:
         logger.error(f"获取K线数据失败: {e}")
         return []
+
+
+@app.get("/logs")
+def get_logs(
+    level: str = Query("all", description="日志级别: all, DEBUG, INFO, WARNING, ERROR"),
+    source: str = Query("all", description="日志来源: all, system, trade, strategy"),
+    keyword: str = Query("", description="关键词搜索"),
+    access: bool = Depends(get_access)  # noqa: ARG001
+) -> list:
+    """获取日志列表"""
+    filtered_logs = list(logs_buffer)
+
+    # 按级别过滤
+    if level != "all":
+        filtered_logs = [log for log in filtered_logs if log['level'] == level]
+
+    # 按来源过滤
+    if source != "all":
+        filtered_logs = [log for log in filtered_logs if log['source'] == source]
+
+    # 按关键词过滤
+    if keyword:
+        filtered_logs = [log for log in filtered_logs if keyword in log['message']]
+
+    return filtered_logs
 
 
 # 活动状态的Websocket连接
