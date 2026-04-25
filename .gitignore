@@ -39,10 +39,10 @@ _templates
 *.mo
 
 # Alpha
-lab/
+
 /.mypy_cache
 *.pkl
-*.parquet
+
 
 # Claude
 .claude/worktrees/
