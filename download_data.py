@@ -130,6 +130,7 @@ def download_data(start_date: str, end_date: str, lab_path: str = "./lab"):
     # 下载
     success_count = 0
     fail_count = 0
+    skip_count = 0
 
     for xt_symbol in tqdm(all_symbols, desc="   下载K线"):
         try:
@@ -137,12 +138,27 @@ def download_data(start_date: str, end_date: str, lab_path: str = "./lab"):
             if ".SH" in xt_symbol:
                 symbol = xt_symbol.replace(".SH", "")
                 exchange = Exchange.SSE
+                vt_symbol = xt_symbol.replace(".SH", ".SSE")
             elif ".SZ" in xt_symbol:
                 symbol = xt_symbol.replace(".SZ", "")
                 exchange = Exchange.SZSE
+                vt_symbol = xt_symbol.replace(".SZ", ".SZSE")
             else:
                 symbol, exchange_str = xt_symbol.split(".")
                 exchange = Exchange(exchange_str)
+                vt_symbol = xt_symbol
+
+            # 检查本地已有数据
+            existing_info = data_store.get_data_info(vt_symbol, Interval.DAILY)
+            if existing_info:
+                existing_start = datetime.fromisoformat(existing_info['start']) if existing_info['start'] else None
+                existing_end = datetime.fromisoformat(existing_info['end']) if existing_info['end'] else None
+
+                # 检查是否已覆盖请求的范围
+                if existing_start and existing_end:
+                    if existing_start <= start_dt and existing_end >= end_dt:
+                        skip_count += 1
+                        continue
 
             req = HistoryRequest(
                 symbol=symbol,
@@ -163,7 +179,7 @@ def download_data(start_date: str, end_date: str, lab_path: str = "./lab"):
             logger.error(f"下载 {xt_symbol} 失败: {e}")
             fail_count += 1
 
-    print(f"   [OK] 下载完成: 成功 {success_count}, 失败 {fail_count}")
+    print(f"   [OK] 下载完成: 成功 {success_count}, 跳过 {skip_count}, 失败 {fail_count}")
 
     # 5. 总结
     print("\n" + "=" * 60)
