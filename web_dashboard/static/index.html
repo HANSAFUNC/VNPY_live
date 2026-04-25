@@ -128,42 +128,44 @@
                             <div class="section-card">
                                 <div class="card-header"><h3>当前持仓</h3></div>
                                 <div class="card-body">
-                                    <el-table :data="positions" size="small" stripe class="data-table" height="300" v-if="positions && positions.length > 0">
-                                        <el-table-column prop="name" label="名称" width="100"></el-table-column>
-                                        <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
-                                        <el-table-column prop="order_id" label="订单ID" width="100"></el-table-column>
-                                        <el-table-column prop="direction" label="方向" width="70">
-                                            <template #default="{ row }">
-                                                <el-tag :type="row.direction === '多' ? 'danger' : 'success'" size="small">
-                                                    {{ row.direction }}
-                                                </el-tag>
-                                            </template>
-                                        </el-table-column>
-                                        <el-table-column prop="volume" label="持仓量" width="80"></el-table-column>
-                                        <el-table-column prop="total_cost" label="总筹码" width="100">
-                                            <template #default="{ row }">
-                                                {{ row.total_cost?.toFixed(2) || '--' }}
-                                            </template>
-                                        </el-table-column>
-                                        <el-table-column prop="price" label="开仓价格" width="100">
-                                            <template #default="{ row }">
-                                                {{ row.price?.toFixed(2) || '--' }}
-                                            </template>
-                                        </el-table-column>
-                                        <el-table-column prop="last_price" label="最新价" width="90">
-                                            <template #default="{ row }">
-                                                {{ row.last_price?.toFixed(2) || '--' }}
-                                            </template>
-                                        </el-table-column>
-                                        <el-table-column prop="pnl_ratio" label="涨跌幅" width="90">
-                                            <template #default="{ row }">
-                                                <span :class="(row.pnl_ratio || 0) >= 0 ? 'profit' : 'loss'">
-                                                    {{ row.pnl_ratio?.toFixed(2) || '0.00' }}%
-                                                </span>
-                                            </template>
-                                        </el-table-column>
-                                        <el-table-column prop="start_time" label="开始时间" width="160"></el-table-column>
-                                    </el-table>
+                                    <div v-if="positions && positions.length > 0">
+                                        <el-table :data="positions" size="small" stripe class="data-table" height="300">
+                                            <el-table-column prop="name" label="名称" width="100"></el-table-column>
+                                            <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
+                                            <el-table-column prop="order_id" label="订单ID" width="100"></el-table-column>
+                                            <el-table-column prop="direction" label="方向" width="70">
+                                                <template #default="{ row }">
+                                                    <el-tag :type="row.direction === '多' ? 'danger' : 'success'" size="small">
+                                                        {{ row.direction }}
+                                                    </el-tag>
+                                                </template>
+                                            </el-table-column>
+                                            <el-table-column prop="volume" label="持仓量" width="80"></el-table-column>
+                                            <el-table-column prop="total_cost" label="总筹码" width="100">
+                                                <template #default="{ row }">
+                                                    {{ row.total_cost?.toFixed(2) || '--' }}
+                                                </template>
+                                            </el-table-column>
+                                            <el-table-column prop="price" label="开仓价格" width="100">
+                                                <template #default="{ row }">
+                                                    {{ row.price?.toFixed(2) || '--' }}
+                                                </template>
+                                            </el-table-column>
+                                            <el-table-column prop="last_price" label="最新价" width="90">
+                                                <template #default="{ row }">
+                                                    {{ row.last_price?.toFixed(2) || '--' }}
+                                                </template>
+                                            </el-table-column>
+                                            <el-table-column prop="pnl_ratio" label="涨跌幅" width="90">
+                                                <template #default="{ row }">
+                                                    <span :class="(row.pnl_ratio || 0) >= 0 ? 'profit' : 'loss'">
+                                                        {{ row.pnl_ratio?.toFixed(2) || '0.00' }}%
+                                                    </span>
+                                                </template>
+                                            </el-table-column>
+                                            <el-table-column prop="start_time" label="开始时间" width="160"></el-table-column>
+                                        </el-table>
+                                    </div>
                                     <div v-else class="empty-state" style="padding: 40px; text-align: center; color: #909399;">
                                         暂无持仓数据
                                     </div>
