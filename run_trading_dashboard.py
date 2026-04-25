@@ -58,7 +58,7 @@ def ensure_web_config():
             setting[key] = value
 
     save_json(config_file, setting)
-    print(f"✓ Web配置已确认: {config_path}")
+    print(f"[OK] Web配置已确认: {config_path}")
     print(f"  登录用户: {setting['username']}")
     print(f"  RPC地址: {setting['req_address']}")
 
@@ -75,7 +75,7 @@ class TradingDashboardLauncher:
 
     def signal_handler(self, signum, frame):
         """信号处理 - 优雅退出"""
-        print("\n\n⚠ 接收到退出信号，正在停止服务...")
+        print("\n\n[WARN] 接收到退出信号，正在停止服务...")
         self.stop()
         sys.exit(0)
 
@@ -95,14 +95,14 @@ class TradingDashboardLauncher:
                 sock.close()
 
                 if result == 0:
-                    print("✓ RPC 服务已就绪")
+                    print("[OK] RPC 服务已就绪")
                     return True
             except Exception:
                 pass
 
             time.sleep(0.5)
 
-        print(f"✗ RPC 服务启动超时 ({timeout}秒)")
+        print(f"[ERROR] RPC 服务启动超时 ({timeout}秒)")
         return False
 
     def start_trading(self, mode, capital, gateway, xt_account):
@@ -138,7 +138,7 @@ class TradingDashboardLauncher:
                 self.rpc_ready = True
                 break
             if "错误" in line or "Error" in line:
-                print("✗ 交易启动失败")
+                print("[ERROR] 交易启动失败")
                 return False
 
         return self.rpc_ready
@@ -152,7 +152,7 @@ class TradingDashboardLauncher:
         # 检查 web_dashboard 是否存在，优先使用它的前端
         web_dashboard_static = Path("web_dashboard/static")
         if web_dashboard_static.exists():
-            print("✓ 检测到 web_dashboard，使用 Vue3 看板")
+            print("[OK] 检测到 web_dashboard，使用 Vue3 看板")
 
         cmd = [
             sys.executable,
@@ -178,7 +178,7 @@ class TradingDashboardLauncher:
         error_output = []
 
         # 读取输出同时检查服务是否启动
-        while time.time() - start_time < 10:
+        while time.time() - start_time < 20:
             # 非阻塞读取输出
             import platform
             if platform.system() == 'Windows':
@@ -218,7 +218,7 @@ class TradingDashboardLauncher:
                         if line.strip():
                             error_output.append(line.rstrip())
                             print(f"[Web] {line.rstrip()}")
-                print("\n✗ Web 服务启动失败，错误输出:")
+                print("\n[ERROR] Web 服务启动失败，错误输出:")
                 for line in error_output[-30:]:
                     print(f"  {line}")
                 return False
@@ -230,14 +230,14 @@ class TradingDashboardLauncher:
                 result = sock.connect_ex((host, port))
                 sock.close()
                 if result == 0:
-                    print(f"✓ Web 服务已启动: http://{host}:{port}")
+                    print(f"[OK] Web 服务已启动: http://{host}:{port}")
                     return True
             except:
                 pass
 
             time.sleep(0.5)
 
-        print(f"✓ Web 服务已启动（超时检测）: http://{host}:{port}")
+        print(f"[OK] Web 服务已启动（超时检测）: http://{host}:{port}")
         return True
 
     def monitor(self):
@@ -247,11 +247,11 @@ class TradingDashboardLauncher:
         while True:
             # 检查进程是否还在运行
             if self.trader_proc and self.trader_proc.poll() is not None:
-                print("\n✗ 交易服务已退出")
+                print("\n[ERROR] 交易服务已退出")
                 break
 
             if self.web_proc and self.web_proc.poll() is not None:
-                print("\n✗ Web 服务已退出")
+                print("\n[ERROR] Web 服务已退出")
                 break
 
             # 读取输出（非阻塞）
@@ -294,7 +294,7 @@ class TradingDashboardLauncher:
                 self.trader_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.trader_proc.kill()
-            print("✓ 交易服务已停止")
+            print("[OK] 交易服务已停止")
 
         if self.web_proc:
             self.web_proc.terminate()
@@ -302,7 +302,7 @@ class TradingDashboardLauncher:
                 self.web_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self.web_proc.kill()
-            print("✓ Web 服务已停止")
+            print("[OK] Web 服务已停止")
 
     def run(self, mode, capital, gateway, xt_account, host, port):
         """运行启动流程"""
@@ -329,7 +329,7 @@ class TradingDashboardLauncher:
 
             # 4. 打印成功信息
             print("\n" + "=" * 60)
-            print("✓ 所有服务已启动！")
+            print("[OK] 所有服务已启动！")
             print("=" * 60)
             print(f"交易模式: {mode}")
             print(f"初始资金: {capital:,.0f}")

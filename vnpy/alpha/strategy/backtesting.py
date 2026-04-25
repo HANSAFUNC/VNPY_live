@@ -1,7 +1,7 @@
 from collections import defaultdict
 from datetime import date, datetime
 from copy import copy
-from typing import cast
+from typing import cast, Union
 import traceback
 
 import numpy as np
@@ -16,6 +16,7 @@ from vnpy.trader.utility import round_to, extract_vt_symbol
 
 from ..logger import logger
 from ..lab import AlphaLab
+from ..lab_v2 import AlphaLabV2
 from .template import AlphaStrategy
 
 
@@ -24,9 +25,9 @@ class BacktestingEngine:
 
     gateway_name: str = "BACKTESTING"
 
-    def __init__(self, lab: AlphaLab) -> None:
+    def __init__(self, lab: AlphaLab | AlphaLabV2) -> None:
         """Constructor"""
-        self.lab: AlphaLab = lab
+        self.lab = lab
 
         self.vt_symbols: list[str] = []
         self.start: datetime

@@ -24,7 +24,7 @@ SETTINGS["datafeed.name"] = "xt"
 SETTINGS["datafeed.username"] = "client"
 SETTINGS["datafeed.password"] = ""
 
-from vnpy.alpha import AlphaLab
+from vnpy.alpha.lab_v2 import AlphaLabV2
 from vnpy.alpha.strategy import TradeEngine
 from vnpy.alpha.strategy.strategies.xgb_extrema_strategy import XGBExtremaStrategy
 from vnpy.trader.constant import Interval, Direction
@@ -33,7 +33,7 @@ from pathlib import Path
 
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR = Path(__file__).parent.resolve()
-LAB_PATH = SCRIPT_DIR / "lab" / "csi300"
+LAB_PATH = SCRIPT_DIR / "lab"
 
 
 class LiveTrader:
@@ -69,12 +69,18 @@ class LiveTrader:
             try:
                 from vnpy_paperaccount import PaperAccountApp
                 self.main_engine.add_app(PaperAccountApp)
-                logger.info("✓ PaperAccountApp 已加载，订单将在本地撮合")
+                logger.info("[OK] PaperAccountApp 已加载，订单将在本地撮合")
             except ImportError:
                 logger.warning("vnpy_paperaccount 未安装，模拟盘功能可能受限")
                 logger.warning("请安装: pip install vnpy-paperaccount")
 
-        self.lab = AlphaLab(str(LAB_PATH))
+        # 使用 AlphaLabV2（分层架构）
+        self.lab = AlphaLabV2(
+            str(LAB_PATH),
+            project_name="xgb_extrema",
+            data_source="xt",
+            index_code="csi300"  # 使用沪深300指数成分股
+        )
         self.live_engine: TradeEngine | None = None
         self.rpc_engine = None
         self.gateway_name = "XT"  # 迅投研网关
@@ -84,7 +90,7 @@ class LiveTrader:
 
         # 交易参数
         self.index_symbol = "000300.SSE"
-        self.top_n = 100
+        self.top_n = 300  # 沪深300最多300只成分股
         self.capital = 1_000_000  # 100万初始资金
         self.cash_ratio = 0.95    # 95% 现金利用率
 
@@ -94,7 +100,7 @@ class LiveTrader:
 
     def signal_handler(self, signum, frame):
         """信号处理 - 优雅退出"""
-        logger.info("\n\n⚠ 接收到退出信号 (Ctrl+C)")
+        logger.info("\n\n[WARN] 接收到退出信号 (Ctrl+C)")
         self.stop()
         sys.exit(0)
 
@@ -196,7 +202,7 @@ class LiveTrader:
 
         # 创建 TradeEngine（自动根据是否加载 paperaccount 决定模拟/实盘）
         # 模拟盘模式下使用 "PAPER" 网关，让 PaperEngine 拦截订单
-        engine_gateway = "PAPER" if self.paper_trading else self.gateway_name
+        engine_gateway = self.gateway_name
         self.live_engine = TradeEngine(
             main_engine=self.main_engine,
             event_engine=self.event_engine,
@@ -385,7 +391,12 @@ def run_backtest_mode():
     from vnpy.alpha.strategy import BacktestingEngine
     from vnpy.alpha import Segment
 
-    lab = AlphaLab(str(LAB_PATH))
+    lab = AlphaLabV2(
+        str(LAB_PATH),
+        project_name="xgb_extrema",
+        data_source="xt",
+        index_code="csi300"
+    )
 
     # 加载信号
     signal_df = lab.load_signal("300_xgb_extrema")

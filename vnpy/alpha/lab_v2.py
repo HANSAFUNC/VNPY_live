@@ -78,6 +78,34 @@ class AlphaLabV2:
         """保存 K 线数据到数据层"""
         self.data_store.save_bars(bars)
 
+    def load_bar_data(
+        self,
+        vt_symbol: str,
+        interval: Interval,
+        start: Union[datetime, str],
+        end: Union[datetime, str]
+    ) -> list[BarData]:
+        """
+        加载单只股票的 K 线数据（兼容 AlphaLab API）
+
+        Parameters
+        ----------
+        vt_symbol : str
+            标的代码，如 "600519.SSE"
+        interval : Interval
+            K 线周期
+        start : datetime or str
+            开始日期
+        end : datetime or str
+            结束日期
+
+        Returns
+        -------
+        list[BarData]
+            K 线数据列表
+        """
+        return self.data_store.load_bars(vt_symbol, interval, start, end)
+
     def load_bar_df(
         self,
         start: Union[datetime, str],
@@ -217,3 +245,11 @@ class AlphaLabV2:
             return None
         with open(file_path, 'rb') as f:
             return pickle.load(f)
+
+    def load_contract_setttings(self) -> dict:
+        """加载合约配置（兼容 AlphaLab API，注意拼写）"""
+        import json
+        if self.contract_path.exists():
+            with open(self.contract_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        return {}

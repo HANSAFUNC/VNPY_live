@@ -14,7 +14,8 @@ from typing import Optional
 from pathlib import Path
 
 from vnpy.trader.constant import Interval
-from vnpy.alpha import AlphaLab, Segment
+from vnpy.alpha.lab_v2 import AlphaLabV2
+from vnpy.alpha import Segment
 from vnpy.alpha.dataset.datasets.quick_adapter_v5 import QuickAdapterV5Dataset
 from vnpy.alpha.model.models.xgb_extrema_model import XGBoostExtremaModel
 from vnpy.alpha.model.models.grouped_multi_model import GroupedMultiModel
@@ -23,14 +24,17 @@ from vnpy.alpha.logger import logger
 
 # 获取脚本所在目录的绝对路径
 SCRIPT_DIR = Path(__file__).parent.resolve()
-LAB_PATH = SCRIPT_DIR / "lab" / "csi300"
+LAB_PATH = SCRIPT_DIR / "lab"
+
+# 成分股数量配置
+CSI300_TOP_N = 300  # 沪深300成分股数量
 
 class XGBoostExtremaSelector:
     """XGBoost 极值选股器"""
 
     def __init__(
         self,
-        lab: AlphaLab,
+        lab: AlphaLabV2,
         name: str,
         index_symbol: str,
         start: str,
@@ -75,9 +79,9 @@ class XGBoostExtremaSelector:
         logger.info("1. 加载数据")
         logger.info("=" * 60)
 
-        # 加载成分股代码
+        # 加载成分股代码（从索引层）
         component_symbols = self.lab.load_component_symbols(
-            self.index_symbol, self.start, self.end
+            self.start, self.end
         )
         logger.info(f"成分股数量：{len(component_symbols)}")
 
@@ -104,8 +108,9 @@ class XGBoostExtremaSelector:
         logger.info(f"  - 缓冲期：{self.extended_days}天")
 
         # 加载成分股数据（从计算的开始时间到 end）
+        # AlphaLabV2: load_bar_df 不需要 symbols 参数，自动从 index_code 获取
         df = self.lab.load_bar_df(
-            top_symbols, self.interval, data_start_str, self.end, 0
+            self.interval, data_start_str, self.end, 0
         )
 
         # 检查数据是否足够，不足时尝试下载
@@ -286,8 +291,9 @@ class XGBoostExtremaSelector:
         )
 
         # 加载指数成分过滤器（使用训练期开始时间，以覆盖完整数据范围）
+        # AlphaLabV2: load_component_filters 不需要 index_symbol 参数
         filters = self.lab.load_component_filters(
-            self.index_symbol, train_start_str, self.end
+            train_start_str, self.end
         )
 
         # 准备特征和标签数据
@@ -530,8 +536,14 @@ def main():
     # ========================================
     # 任务参数配置
     # ========================================
-    # 创建数据中心
-    lab = AlphaLab(str(LAB_PATH))
+    # 创建数据中心 - AlphaLabV2（分层架构）
+    # 参数：lab路径、项目名称、数据源、指数代码
+    lab = AlphaLabV2(
+        str(LAB_PATH),
+        project_name="xgb_extrema",
+        data_source="xt",
+        index_code="csi300"  # 使用沪深300指数成分股
+    )
 
     # 任务名称
     name = "300_xgb_extrema"
@@ -552,7 +564,7 @@ def main():
         index_symbol=index_symbol,
         start=start,
         end=end,
-        top_n=100,              # 选股数量
+        top_n=300,              # 选股数量（沪深300最多300只）
         train_period_days=300,  # 训练期天数（从 start 往前推）
         extended_days=100,      # 额外缓冲天数
     )

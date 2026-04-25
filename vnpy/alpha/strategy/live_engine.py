@@ -44,7 +44,7 @@ class TradeEngine(BaseEngine):
     """
 
     engine_name: str = "TradeEngine"
-    gateway_name: str = "LIVE"
+    gateway_name: str = "XT"
 
     def __init__(
         self,
@@ -191,6 +191,7 @@ class TradeEngine(BaseEngine):
         for vt_symbol in vt_symbols:
             try:
                 if self.gateway_name:
+                    print(self.gateway_name)
                     # 统一通过网关订阅
                     self.main_engine.subscribe(SubscribeRequest(
                         symbol=vt_symbol.split('.')[0],

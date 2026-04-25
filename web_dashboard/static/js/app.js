@@ -635,9 +635,9 @@ const app = createApp({
 
         onMounted(() => {
             window.addEventListener('resize', handleResize);
-            // 登录后定时刷新数据
+            // 登录后加载一次基础数据（不再轮询，依赖 WebSocket 实时更新）
             if (isLoggedIn.value) {
-                setInterval(fetchData, 5000);
+                fetchData();
             }
         });
 

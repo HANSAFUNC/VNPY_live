@@ -1,11 +1,16 @@
 import traceback
+from datetime import datetime, timedelta
 
 from vnpy.event import Event, EventEngine
 from vnpy.rpc import RpcServer
 from vnpy.trader.engine import BaseEngine, MainEngine
-from vnpy.trader.utility import load_json, save_json
-from vnpy.trader.object import LogData
+from vnpy.trader.utility import load_json, save_json, extract_vt_symbol
+from vnpy.trader.object import LogData, BarData
 from vnpy.trader.event import EVENT_TIMER
+from vnpy.trader.constant import Interval
+
+import polars as pl
+from pathlib import Path
 
 
 APP_NAME = "RpcService"
@@ -54,6 +59,107 @@ class RpcEngine(BaseEngine):
         self.server.register(self.main_engine.get_all_accounts)
         self.server.register(self.main_engine.get_all_contracts)
         self.server.register(self.main_engine.get_all_active_orders)
+
+        # 注册K线数据查询方法
+        self.server.register(self.get_kline)
+
+    def get_kline(self, vt_symbol: str, period: str = "1d") -> list:
+        """
+        获取K线数据
+
+        Parameters
+        ----------
+        vt_symbol : str
+            标的代码，如 "600519.SSE"
+        period : str
+            周期，如 "1d"(日线), "1h"(小时), "15m"(15分钟)
+
+        Returns
+        -------
+        list
+            K线数据列表，每项为 {"datetime": str, "open": float, "close": float, "high": float, "low": float, "volume": float}
+        """
+        try:
+            # 解析 interval
+            interval_map = {
+                "1d": Interval.DAILY,
+                "daily": Interval.DAILY,
+                "1m": Interval.MINUTE,
+                "1min": Interval.MINUTE,
+                "minute": Interval.MINUTE,
+            }
+            interval = interval_map.get(period, Interval.DAILY)
+
+            # 确定数据目录（从当前文件向上查找 lab 目录）
+            current_dir = Path(__file__).resolve().parent
+            lab_path = None
+            # 向上遍历5层目录查找 lab/csi300
+            for _ in range(5):
+                test_path = current_dir / "lab" / "csi300"
+                if test_path.exists():
+                    lab_path = test_path
+                    break
+                current_dir = current_dir.parent
+
+            if not lab_path:
+                # 尝试使用固定路径
+                lab_path = Path("F:/vnpy_live/lab/csi300")
+                if not lab_path.exists():
+                    self.write_log(f"无法找到 lab/csi300 目录")
+                    return []
+
+            if interval == Interval.DAILY:
+                folder_path = lab_path / "daily"
+            elif interval == Interval.MINUTE:
+                folder_path = lab_path / "minute"
+            else:
+                return []
+
+            if not folder_path.exists():
+                self.write_log(f"K线目录不存在: {folder_path}")
+                return []
+
+            # 尝试转换代码格式 SH -> SSE, SZ -> SZSE
+            original_symbol = vt_symbol
+            if ".SH" in vt_symbol:
+                vt_symbol = vt_symbol.replace(".SH", ".SSE")
+            elif ".SZ" in vt_symbol:
+                vt_symbol = vt_symbol.replace(".SZ", ".SZSE")
+
+            # 检查文件是否存在
+            file_path = folder_path / f"{vt_symbol}.parquet"
+            if not file_path.exists():
+                self.write_log(f"K线数据文件不存在: {vt_symbol} (原始: {original_symbol}), 路径: {file_path}")
+                return []
+
+            # 读取数据
+            df = pl.read_parquet(file_path)
+
+            # 获取最近 100 天的数据
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=100)
+            df = df.filter((pl.col("datetime") >= start_date) & (pl.col("datetime") <= end_date))
+
+            if df.is_empty():
+                return []
+
+            # 转换为前端需要的格式
+            result = []
+            for row in df.iter_rows(named=True):
+                result.append({
+                    "datetime": row["datetime"].strftime("%Y-%m-%d %H:%M:%S") if isinstance(row["datetime"], datetime) else str(row["datetime"]),
+                    "open": float(row["open"]),
+                    "close": float(row["close"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "volume": float(row["volume"])
+                })
+
+            return result
+
+        except Exception as e:
+            self.write_log(f"获取K线数据失败: {e}")
+            return []
 
     def load_setting(self) -> None:
         """读取配置文件"""

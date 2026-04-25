@@ -166,7 +166,7 @@ class PaperEngine(BaseEngine):
         elif self.ib_gateway and req.exchange in self.ib_gateway.exchanges:
             self._subscribe(req, "IB")
         else:
-            self.write_log(f"订阅行情失败，找不到该合约{req.vt_symbol}")
+            self.write_log(f"订阅行情失败，找不到该合约{req.vt_symbol} {original_gateway_name} {gateway_name}")
 
     def query_history(self, req: HistoryRequest, gateway_name: str) -> list[BarData] | None:
         """"""
