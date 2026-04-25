@@ -128,7 +128,7 @@
                             <div class="section-card">
                                 <div class="card-header"><h3>当前持仓</h3></div>
                                 <div class="card-body">
-                                    <el-table :data="positions" size="small" stripe class="data-table" height="300">
+                                    <el-table :data="positions" size="small" stripe class="data-table" height="300" v-if="positions && positions.length > 0">
                                         <el-table-column prop="name" label="名称" width="100"></el-table-column>
                                         <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
                                         <el-table-column prop="order_id" label="订单ID" width="100"></el-table-column>
@@ -164,6 +164,9 @@
                                         </el-table-column>
                                         <el-table-column prop="start_time" label="开始时间" width="160"></el-table-column>
                                     </el-table>
+                                    <div v-else class="empty-state" style="padding: 40px; text-align: center; color: #909399;">
+                                        暂无持仓数据
+                                    </div>
                                 </div>
                             </div>
 
@@ -171,7 +174,7 @@
                             <div class="section-card">
                                 <div class="card-header"><h3>历史成交</h3></div>
                                 <div class="card-body">
-                                    <el-table :data="trades" size="small" stripe class="data-table" height="300">
+                                    <el-table :data="trades" size="small" stripe class="data-table" height="300" v-if="trades && trades.length > 0">
                                         <el-table-column prop="name" label="名称" width="100"></el-table-column>
                                         <el-table-column prop="vt_symbol" label="代码" width="120"></el-table-column>
                                         <el-table-column prop="order_id" label="订单ID" width="100"></el-table-column>
@@ -209,6 +212,9 @@
                                         <el-table-column prop="end_time" label="结束时间" width="160"></el-table-column>
                                         <el-table-column prop="close_reason" label="结束原因" width="100"></el-table-column>
                                     </el-table>
+                                    <div v-else class="empty-state" style="padding: 40px; text-align: center; color: #909399;">
+                                        暂无历史成交数据
+                                    </div>
                                 </div>
                             </div>
                         </el-tab-pane>

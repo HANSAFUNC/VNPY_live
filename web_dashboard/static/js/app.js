@@ -36,12 +36,6 @@ const app = createApp({
 
         // Dashboard 状态
         const closedTrades = ref([]);
-        const dashboardMetrics = computed(() => [
-            { label: '总资产', value: formatMoney(account.value.balance), color: '#409eff' },
-            { label: '可用资金', value: formatMoney(account.value.available), color: '#67c23a' },
-            { label: '持仓市值', value: formatMoney(positionValue.value), color: '#e6a23c' },
-            { label: '今日盈亏', value: formatMoney(dailyPnl.value), color: dailyPnl.value >= 0 ? '#67c23a' : '#f56c6c' }
-        ]);
 
         // Trade 状态
         const tradeForm = reactive({ direction: 'buy', price: 0, volume: 100 });
@@ -477,6 +471,14 @@ const app = createApp({
         const pnlClass = computed(() => {
             return dailyPnl.value >= 0 ? 'profit' : 'loss';
         });
+
+        // Dashboard 指标（依赖上面的计算属性，必须在后面定义）
+        const dashboardMetrics = computed(() => [
+            { label: '总资产', value: formatMoney(account.value.balance), color: '#409eff' },
+            { label: '可用资金', value: formatMoney(account.value.available), color: '#67c23a' },
+            { label: '持仓市值', value: formatMoney(positionValue.value), color: '#e6a23c' },
+            { label: '今日盈亏', value: formatMoney(dailyPnl.value), color: dailyPnl.value >= 0 ? '#67c23a' : '#f56c6c' }
+        ]);
 
         // 登录处理器
         const handleLogin = async () => {
