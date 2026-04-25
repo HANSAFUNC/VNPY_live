@@ -1,0 +1,32 @@
+{
+  "name": "vnpy-dashboard-v2",
+  "private": true,
+  "version": "2.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview",
+    "type-check": "vue-tsc --noEmit"
+  },
+  "dependencies": {
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0",
+    "pinia": "^2.3.0",
+    "pinia-plugin-persistedstate": "~4.2.0",
+    "element-plus": "^2.9.7",
+    "@element-plus/icons-vue": "^2.3.1",
+    "echarts": "^5.6.0",
+    "vue-echarts": "^7.0.3",
+    "vue-grid-layout": "^3.0.0-beta1",
+    "axios": "^1.7.9"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-vue": "^5.2.1",
+    "typescript": "~5.7.0",
+    "vue-tsc": "^2.2.0",
+    "vite": "^6.2.0",
+    "sass": "^1.83.0",
+    "@types/node": "^22.10.0"
+  }
+}

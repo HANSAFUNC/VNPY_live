@@ -47,3 +47,6 @@ _templates
 # Claude
 .claude/worktrees/
 
+
+# Node.js
+node_modules/
