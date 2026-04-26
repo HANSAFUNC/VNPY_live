@@ -1,8 +1,7 @@
 <template>
-  <div id="app">
-    <h1>VNPY Pro</h1>
-  </div>
+  <router-view />
 </template>
 
-<script setup lang="ts">
-</script>
+<style lang="scss">
+// 全局样式已在 main.ts 导入
+</style>
