@@ -9,5 +9,4 @@ export * from './bot';
 export * from './trading';
 export * from './market';
 export * from './logs';
-// TODO: Task 10 中启用
-// export * from './ui';
+export * from './ui';
