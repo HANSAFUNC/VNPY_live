@@ -1,10 +1,8 @@
 import axios from 'axios';
 import { clearToken, getToken } from '@/utils/storage';
 
-const baseURL = import.meta.env.VITE_API_BASE_URL || '';
-
+// 创建 axios 实例，不设置 baseURL
 export const client = axios.create({
-  baseURL,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -34,3 +32,17 @@ client.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+/**
+ * 设置 API baseURL
+ */
+export function setApiBaseUrl(baseURL: string): void {
+  client.defaults.baseURL = baseURL;
+}
+
+/**
+ * 获取当前 baseURL
+ */
+export function getApiBaseUrl(): string | undefined {
+  return client.defaults.baseURL;
+}
