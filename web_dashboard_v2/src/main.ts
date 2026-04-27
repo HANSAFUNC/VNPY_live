@@ -7,7 +7,6 @@ import App from './App.vue';
 import router from './router';
 import { pinia } from './stores';
 import { useAuthStore, useTradingStore, useMarketStore } from './stores';
-import { wsManager } from './api';
 
 import '@/assets/styles/global.scss';
 
@@ -22,11 +21,11 @@ app.use(pinia);
 app.use(router);
 app.use(ElementPlus);
 
-// 初始化 WebSocket 连接（如果已登录）
+// 初始化：恢复服务器配置和 WebSocket 连接（如果已登录）
 const authStore = useAuthStore();
-if (authStore.isLoggedIn) {
-  wsManager.connect();
+authStore.initialize();
 
+if (authStore.isLoggedIn) {
   // 设置 WebSocket 监听器
   const tradingStore = useTradingStore();
   const marketStore = useMarketStore();

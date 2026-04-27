@@ -18,6 +18,7 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, stat
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from jose import jwt, JWTError
 from passlib.context import CryptContext
@@ -166,6 +167,15 @@ async def get_access(token: str = Depends(oauth2_scheme)) -> bool:
 
 # 创建FastAPI应用
 app: FastAPI = FastAPI()
+
+# 配置CORS中间件 - 允许跨域请求
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 允许所有来源，生产环境应指定具体域名
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 确定静态文件目录
 web_dashboard_static = Path(__file__).parent.parent / "web_dashboard" / "static"

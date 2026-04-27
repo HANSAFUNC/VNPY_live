@@ -1,4 +1,4 @@
-export { client } from './client';
+export { client, setApiBaseUrl } from './client';
 export { authApi } from './auth';
 export { tradingApi } from './trading';
 export { marketApi } from './market';
