@@ -47,3 +47,11 @@ _templates
 # Claude
 .claude/worktrees/
 
+
+# Node.js
+node_modules/
+
+# Environment
+.env
+.env.*
+!.env.example
