@@ -11,11 +11,26 @@ class WebSocketManager {
   private reconnectCount = 0;
   private maxReconnectCount = 5;
   private intentionalClose = false;
+  private wsUrl: string | null = null;
 
   public readonly isConnected = ref(false);
   public readonly statusText = computed(() =>
     this.isConnected.value ? '已连接' : '未连接'
   );
+
+  /**
+   * 设置 WebSocket URL
+   */
+  setUrl(url: string): void {
+    this.wsUrl = url;
+  }
+
+  /**
+   * 获取当前 WebSocket URL
+   */
+  getUrl(): string | null {
+    return this.wsUrl;
+  }
 
   connect(): void {
     // 防止重复连接
@@ -24,14 +39,20 @@ class WebSocketManager {
       this.ws = null;
     }
 
+    // 检查 URL 是否已设置
+    if (!this.wsUrl) {
+      console.error('WebSocket URL not set');
+      return;
+    }
+
     this.intentionalClose = false;
 
     const token = getToken();
     if (!token) return;
 
-    const wsUrl = `${import.meta.env.VITE_WS_URL}?token=${token}`;
+    const url = `${this.wsUrl}?token=${token}`;
 
-    this.ws = new WebSocket(wsUrl);
+    this.ws = new WebSocket(url);
 
     this.ws.onopen = () => {
       console.log('WebSocket connected');
