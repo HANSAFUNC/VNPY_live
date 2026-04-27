@@ -25,16 +25,29 @@ app.use(ElementPlus);
 const authStore = useAuthStore();
 authStore.initialize();
 
-if (authStore.isLoggedIn) {
-  // 设置 WebSocket 监听器
-  const tradingStore = useTradingStore();
-  const marketStore = useMarketStore();
-  tradingStore.setupWebSocketListeners();
-  marketStore.setupWebSocketListeners();
+if (authStore.isLoggedIn && authStore.currentServer) {
+  // 确认服务器配置与当前页面一致（避免localhost/IP混乱）
+  const currentHost = window.location.hostname;
+  const serverHost = new URL(authStore.currentServer.url).hostname;
 
-  // 加载初始数据
-  tradingStore.fetchAllData();
-  marketStore.fetchContracts();
+  // 如果配置是localhost但页面从IP访问，或反过来，提示重新登录
+  const isLocalhost = (host: string) => host === 'localhost' || host === '127.0.0.1';
+
+  if (isLocalhost(currentHost) !== isLocalhost(serverHost)) {
+    console.warn('服务器配置与当前访问地址不匹配，请重新登录');
+    authStore.logout();
+    router.push('/login');
+  } else {
+    // 设置 WebSocket 监听器
+    const tradingStore = useTradingStore();
+    const marketStore = useMarketStore();
+    tradingStore.setupWebSocketListeners();
+    marketStore.setupWebSocketListeners();
+
+    // 加载初始数据
+    tradingStore.fetchAllData();
+    marketStore.fetchContracts();
+  }
 }
 
 app.mount('#app');
