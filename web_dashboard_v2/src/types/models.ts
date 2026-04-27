@@ -112,3 +112,12 @@ export interface GridItem {
 }
 
 export type Period = '1m' | '5m' | '15m' | '1h' | '1d';
+
+export interface ServerConfig {
+  id: string;
+  name: string;
+  url: string;
+  wsUrl: string;
+  lastUsed: number;
+  isDefault?: boolean;
+}
