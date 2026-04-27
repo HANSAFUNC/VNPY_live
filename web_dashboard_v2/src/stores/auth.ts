@@ -82,8 +82,18 @@ export const useAuthStore = defineStore(
       loadCurrentServer();
       if (currentServer.value && token.value) {
         applyServerConfig(currentServer.value);
-        wsManager.connect();
+        // 延迟连接，让页面先加载完成
+        setTimeout(() => {
+          wsManager.connect();
+        }, 100);
       }
+    }
+
+    // 清除当前服务器配置（用于切换服务器）
+    function clearServerConfig(): void {
+      currentServer.value = null;
+      localStorage.removeItem(STORAGE_KEY);
+      wsManager.disconnect();
     }
 
     // 切换服务器
@@ -109,6 +119,7 @@ export const useAuthStore = defineStore(
       logout,
       initialize,
       switchServer,
+      clearServerConfig,
     };
   },
   {

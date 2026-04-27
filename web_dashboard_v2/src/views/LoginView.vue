@@ -68,6 +68,13 @@
           >
             登录
           </el-button>
+          <el-button
+            v-if="recentServers.length > 0"
+            size="large"
+            @click="clearHistory"
+          >
+            清除历史
+          </el-button>
         </el-form-item>
       </el-form>
     </el-card>
@@ -81,7 +88,7 @@ import { User, Lock, OfficeBuilding, ArrowDown } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import type { FormInstance, FormRules } from 'element-plus';
 import { useAuthStore } from '@/stores';
-import { getRecentServers, getDefaultServer, validateServerUrl } from '@/utils/servers';
+import { getRecentServers, getDefaultServer, validateServerUrl, getServers, deleteServer } from '@/utils/servers';
 import type { ServerConfig } from '@/types';
 
 const router = useRouter();
@@ -136,6 +143,15 @@ onMounted(() => {
 // 选择历史服务器
 function handleSelectServer(server: ServerConfig) {
   form.serverUrl = server.url;
+}
+
+// 清除所有服务器历史
+function clearHistory() {
+  const servers = getServers();
+  servers.forEach((s) => deleteServer(s.id));
+  recentServers.value = [];
+  form.serverUrl = '';
+  authStore.clearServerConfig();
 }
 
 async function handleLogin() {
