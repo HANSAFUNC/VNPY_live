@@ -126,9 +126,10 @@ onMounted(() => {
   if (defaultServer) {
     form.serverUrl = defaultServer.url;
   } else {
-    // 使用当前页面 host:8000 作为默认值
-    const currentHost = window.location.hostname || 'localhost';
-    form.serverUrl = `http://${currentHost}:8000`;
+    // 使用当前页面地址，默认后端端口为 8000
+    const hostname = window.location.hostname || 'localhost';
+    const port = '8000'; // 后端默认端口
+    form.serverUrl = `http://${hostname}:${port}`;
   }
 });
 
