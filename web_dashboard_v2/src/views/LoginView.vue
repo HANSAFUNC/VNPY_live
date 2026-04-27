@@ -97,9 +97,6 @@ const form = reactive({
   password: '',
 });
 
-// 检测是否在开发环境使用代理
-const isDevWithProxy = import.meta.env.DEV;
-
 const rules: FormRules = {
   serverUrl: [
     { required: true, message: '请输入服务器地址', trigger: 'blur' },
@@ -128,13 +125,10 @@ onMounted(() => {
   const defaultServer = getDefaultServer();
   if (defaultServer) {
     form.serverUrl = defaultServer.url;
-  } else if (isDevWithProxy) {
-    // 开发环境使用代理路径
-    form.serverUrl = '/api';
   } else {
-    // 使用当前页面 host
-    const currentHost = window.location.host || 'localhost:8000';
-    form.serverUrl = `http://${currentHost}`;
+    // 使用当前页面 host:8000 作为默认值
+    const currentHost = window.location.hostname || 'localhost';
+    form.serverUrl = `http://${currentHost}:8000`;
   }
 });
 
