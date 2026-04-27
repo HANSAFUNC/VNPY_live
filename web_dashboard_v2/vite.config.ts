@@ -34,6 +34,15 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+      },
+      '/token': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '^/(account|position|trade|order|contract|tick|kline|trading_mode|logs)': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
       },
       '/ws': {
         target: 'ws://localhost:8000',
