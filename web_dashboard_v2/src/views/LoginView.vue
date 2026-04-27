@@ -125,6 +125,10 @@ onMounted(() => {
   const defaultServer = getDefaultServer();
   if (defaultServer) {
     form.serverUrl = defaultServer.url;
+  } else {
+    // 使用当前页面 host 作为默认值
+    const currentHost = window.location.host || 'localhost:8000';
+    form.serverUrl = `http://${currentHost}`;
   }
 });
 
