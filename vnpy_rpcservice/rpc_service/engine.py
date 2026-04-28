@@ -63,9 +63,18 @@ class RpcEngine(BaseEngine):
         # 注册K线数据查询方法
         self.server.register(self.get_kline)
 
+        # 注册实验室相关方法
+        self.server.register(self.lab_get_kline)
+        self.server.register(self.lab_get_components)
+        self.server.register(self.lab_get_coverage)
+        self.server.register(self.lab_list_projects)
+        self.server.register(self.lab_switch_project)
+        self.server.register(self.lab_create_project)
+        self.server.register(self.lab_delete_project)
+
     def get_kline(self, vt_symbol: str, period: str = "1d") -> list:
         """
-        获取K线数据
+        获取K线数据 - 优先从网关获取，失败则回退到本地文件
 
         Parameters
         ----------
@@ -90,6 +99,61 @@ class RpcEngine(BaseEngine):
             }
             interval = interval_map.get(period, Interval.DAILY)
 
+            # 尝试从网关获取数据
+            from vnpy.trader.object import HistoryRequest
+            from vnpy.trader.constant import Exchange
+
+            try:
+                symbol, exchange_str = vt_symbol.split(".", 1)
+                exchange = Exchange(exchange_str)
+            except Exception:
+                symbol = vt_symbol
+                exchange = Exchange.SSE
+
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=100)
+
+            history_request = HistoryRequest(
+                symbol=symbol,
+                exchange=exchange,
+                start=start_date,
+                end=end_date,
+                interval=interval
+            )
+
+            # 获取当前活跃网关
+            gateways = self.main_engine.get_all_gateway_names()
+            for gateway_name in gateways:
+                try:
+                    bar_data_list = self.main_engine.query_history(history_request, gateway_name)
+                    if bar_data_list and len(bar_data_list) > 0:
+                        self.write_log(f"从网关 {gateway_name} 获取到 {len(bar_data_list)} 条K线数据")
+                        result = []
+                        for bar in bar_data_list:
+                            result.append({
+                                "datetime": bar.datetime.strftime("%Y-%m-%d %H:%M:%S") if bar.datetime else "",
+                                "open": float(bar.open_price),
+                                "close": float(bar.close_price),
+                                "high": float(bar.high_price),
+                                "low": float(bar.low_price),
+                                "volume": float(bar.volume)
+                            })
+                        return result
+                except Exception as e:
+                    self.write_log(f"网关 {gateway_name} 获取K线失败: {e}")
+                    continue
+
+            # 网关获取失败，回退到本地文件
+            self.write_log(f"所有网关均无数据，回退到本地文件")
+            return self._get_kline_from_local(vt_symbol, interval)
+
+        except Exception as e:
+            self.write_log(f"获取K线数据失败: {e}")
+            return []
+
+    def _get_kline_from_local(self, vt_symbol: str, interval: Interval) -> list:
+        """从本地文件获取K线数据"""
+        try:
             # 确定数据目录（从当前文件向上查找 lab 目录）
             current_dir = Path(__file__).resolve().parent
             lab_path = None
@@ -158,8 +222,78 @@ class RpcEngine(BaseEngine):
             return result
 
         except Exception as e:
-            self.write_log(f"获取K线数据失败: {e}")
+            self.write_log(f"从本地获取K线数据失败: {e}")
             return []
+
+    def get_lab_engine(self):
+        """获取 AlphaLabV2Engine"""
+        try:
+            engine = self.main_engine.get_engine("AlphaLabV2")
+            return engine
+        except Exception:
+            return None
+
+    def lab_get_kline(self, vt_symbol: str, period: str = "1d", days: int = 100) -> list:
+        """获取K线数据"""
+        engine = self.get_lab_engine()
+        if engine:
+            return engine.get_kline(vt_symbol, period, days)
+        return []
+
+    def lab_get_components(self, start: str = None, end: str = None) -> list:
+        """获取指数成分股"""
+        engine = self.get_lab_engine()
+        if engine:
+            if start is None:
+                start = datetime.now() - timedelta(days=30)
+            if end is None:
+                end = datetime.now()
+            symbols = engine.get_component_symbols(engine.index_code, start, end)
+            return symbols
+        return []
+
+    def lab_get_coverage(self) -> dict:
+        """获取数据覆盖情况"""
+        engine = self.get_lab_engine()
+        if engine:
+            return engine.get_data_coverage()
+        return {"error": "Lab engine not available"}
+
+    def lab_list_projects(self) -> list:
+        """列出所有项目"""
+        engine = self.get_lab_engine()
+        if engine:
+            return engine.list_projects()
+        return []
+
+    def lab_switch_project(self, project_name: str, index_code: str = None, data_source: str = None) -> dict:
+        """切换项目"""
+        engine = self.get_lab_engine()
+        if engine:
+            return engine.switch_project(project_name, index_code, data_source)
+        return {"success": False, "message": "Lab engine not available"}
+
+    def lab_create_project(self, project_name: str, index_code: str = "csi300", data_source: str = "xt") -> dict:
+        """创建新项目"""
+        engine = self.get_lab_engine()
+        if engine:
+            old_project = engine.project_name
+            result = engine.switch_project(project_name, index_code, data_source)
+            engine.switch_project(old_project)
+            return {"success": True, "message": f"Project {project_name} created"}
+        return {"success": False, "message": "Lab engine not available"}
+
+    def lab_delete_project(self, project_name: str) -> dict:
+        """删除项目"""
+        import shutil
+        engine = self.get_lab_engine()
+        if engine:
+            project_path = engine.root / "project" / project_name
+            if project_path.exists():
+                shutil.rmtree(project_path)
+                return {"success": True, "message": f"Project {project_name} deleted"}
+            return {"success": False, "message": f"Project {project_name} not found"}
+        return {"success": False, "message": "Lab engine not available"}
 
     def load_setting(self) -> None:
         """读取配置文件"""
