@@ -72,6 +72,11 @@ class RpcEngine(BaseEngine):
         self.server.register(self.lab_create_project)
         self.server.register(self.lab_delete_project)
 
+        # 注册实验室信号相关方法
+        self.server.register(self.lab_list_signals)
+        self.server.register(self.lab_load_signal)
+        self.server.register(self.lab_remove_signal)
+
     def get_kline(self, vt_symbol: str, period: str = "1d") -> list:
         """
         获取K线数据 - 优先从网关获取，失败则回退到本地文件
@@ -293,6 +298,32 @@ class RpcEngine(BaseEngine):
                 shutil.rmtree(project_path)
                 return {"success": True, "message": f"Project {project_name} deleted"}
             return {"success": False, "message": f"Project {project_name} not found"}
+        return {"success": False, "message": "Lab engine not available"}
+
+    def lab_list_signals(self) -> list:
+        """列出所有信号"""
+        engine = self.get_lab_engine()
+        if engine:
+            return engine.list_all_signals()
+        return []
+
+    def lab_load_signal(self, name: str) -> list:
+        """加载信号数据"""
+        engine = self.get_lab_engine()
+        if engine:
+            df = engine.load_signal(name)
+            if df is None:
+                return None
+            # Convert DataFrame to list of dicts for JSON serialization
+            return df.to_dicts()
+        return None
+
+    def lab_remove_signal(self, name: str) -> dict:
+        """删除信号"""
+        engine = self.get_lab_engine()
+        if engine:
+            result = engine.remove_signal(name)
+            return {"success": result, "message": f"Signal {name} removed" if result else f"Signal {name} not found"}
         return {"success": False, "message": "Lab engine not available"}
 
     def load_setting(self) -> None:

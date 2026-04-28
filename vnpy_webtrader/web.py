@@ -508,6 +508,51 @@ def delete_lab_project(
         return {"success": False, "message": str(e)}
 
 
+@app.get("/api/lab/signals")
+def get_lab_signals(access: bool = Depends(get_access)) -> list:
+    """列出所有信号"""
+    try:
+        if hasattr(rpc_client, 'lab_list_signals'):
+            return rpc_client.lab_list_signals()
+        return []
+    except Exception as e:
+        logger.error(f"获取信号列表失败: {e}")
+        return []
+
+
+@app.get("/api/lab/signal/{name}")
+def get_lab_signal(
+    name: str,
+    access: bool = Depends(get_access)
+) -> dict:
+    """加载信号数据"""
+    try:
+        if hasattr(rpc_client, 'lab_load_signal'):
+            result = rpc_client.lab_load_signal(name)
+            if result is None:
+                return {"error": f"Signal {name} not found"}
+            return {"data": result}
+        return {"error": "RPC method not available"}
+    except Exception as e:
+        logger.error(f"加载信号失败: {e}")
+        return {"error": str(e)}
+
+
+@app.delete("/api/lab/signal/{name}")
+def delete_lab_signal(
+    name: str,
+    access: bool = Depends(get_access)
+) -> dict:
+    """删除信号"""
+    try:
+        if hasattr(rpc_client, 'lab_remove_signal'):
+            return rpc_client.lab_remove_signal(name)
+        return {"success": False, "message": "RPC method not available"}
+    except Exception as e:
+        logger.error(f"删除信号失败: {e}")
+        return {"success": False, "message": str(e)}
+
+
 @app.get("/api/logs")
 def get_logs(
     level: str = Query("all", description="日志级别: all, DEBUG, INFO, WARNING, ERROR"),
