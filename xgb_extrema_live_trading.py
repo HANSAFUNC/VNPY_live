@@ -74,25 +74,17 @@ class LiveTrader:
                 logger.warning("vnpy_paperaccount 未安装，模拟盘功能可能受限")
                 logger.warning("请安装: pip install vnpy-paperaccount")
 
-        # 使用 AlphaLabV2（分层架构）
-        self.lab = AlphaLabV2(
-            str(LAB_PATH),
-            project_name="xgb_extrema",
-            data_source="xt",
-            index_code="csi300"  # 使用沪深300指数成分股
-        )
-
         # 创建并注册 AlphaLabV2Engine
         self.lab_engine = AlphaLabV2Engine(
             main_engine=self.main_engine,
             event_engine=self.event_engine,
             root_path=str(LAB_PATH),
-            project_name="default",
+            project_name="xgb_extrema",
             data_source="xt",
             index_code="csi300"
         )
         self.main_engine.engines[self.lab_engine.engine_name] = self.lab_engine
-        logger.info(f"AlphaLabV2Engine 已注册: project=default, index=csi300")
+        logger.info(f"AlphaLabV2Engine 已注册: project=xgb_extrema, index=csi300")
 
         self.live_engine: TradeEngine | None = None
         self.rpc_engine = None
@@ -123,7 +115,7 @@ class LiveTrader:
         logger.info("加载交易信号")
         logger.info("=" * 60)
 
-        signal_df = self.lab.load_signal(self.signal_name)
+        signal_df = self.lab_engine.load_signal(self.signal_name)
 
         if signal_df is None or signal_df.is_empty():
             logger.error(f"错误：找不到信号文件 {self.signal_name}")
@@ -219,7 +211,7 @@ class LiveTrader:
         self.live_engine = TradeEngine(
             main_engine=self.main_engine,
             event_engine=self.event_engine,
-            lab=self.lab,
+            lab=self.lab_engine,
             gateway_name=engine_gateway
         )
 

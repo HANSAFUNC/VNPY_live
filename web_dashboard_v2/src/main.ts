@@ -21,10 +21,11 @@ app.use(pinia);
 app.use(router);
 app.use(ElementPlus);
 
-// 初始化：恢复服务器配置和 WebSocket 连接（如果已登录）
+// 初始化认证状态
 const authStore = useAuthStore();
 authStore.initialize();
 
+// 检查登录状态，如果已登录则设置 WebSocket
 if (authStore.isLoggedIn && authStore.currentServer) {
   // 确认服务器配置与当前页面一致（避免localhost/IP混乱）
   const currentHost = window.location.hostname;
@@ -43,11 +44,30 @@ if (authStore.isLoggedIn && authStore.currentServer) {
     const marketStore = useMarketStore();
     tradingStore.setupWebSocketListeners();
     marketStore.setupWebSocketListeners();
-
-    // 加载初始数据
-    tradingStore.fetchAllData();
-    marketStore.fetchContracts();
   }
 }
 
-app.mount('#app');
+// 添加全局导航守卫，确保需要认证的页面在登录后才能访问
+router.beforeEach((to, _from, next) => {
+  const authStore = useAuthStore();
+
+  // 如果访问登录页且已登录，跳转到首页
+  if (to.path === '/login' && authStore.isLoggedIn) {
+    next('/');
+    return;
+  }
+
+  // 如果需要认证但未登录，跳转到登录页
+  if (to.meta.requiresAuth !== false && !authStore.isLoggedIn) {
+    next('/login');
+    return;
+  }
+
+  next();
+});
+
+// 延迟挂载应用，确保 Pinia 状态已恢复
+// pinia-plugin-persistedstate 会在 pinia 安装后自动恢复状态
+setTimeout(() => {
+  app.mount('#app');
+}, 0);

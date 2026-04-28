@@ -1,4 +1,4 @@
-import { client } from './client';
+import axios from 'axios';
 import type { LoginRequest, LoginResponse } from '@/types';
 
 export const authApi = {
@@ -7,10 +7,11 @@ export const authApi = {
     formData.append('username', data.username);
     formData.append('password', data.password);
 
-    return client.post('/token', formData, {
+    // 登录接口走 /api/token -> Vite 代理 -> /token
+    return axios.post('/api/token', formData, {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-    });
+    }).then(res => res.data);
   },
 };

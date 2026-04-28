@@ -1,8 +1,9 @@
 import axios from 'axios';
 import { clearToken, getToken } from '@/utils/storage';
 
-// 创建 axios 实例，不设置 baseURL
+// 创建 axios 实例
 export const client = axios.create({
+  baseURL: '/api',  // 统一使用 /api 前缀
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -37,7 +38,7 @@ client.interceptors.response.use(
  * 设置 API baseURL
  */
 export function setApiBaseUrl(baseURL: string): void {
-  client.defaults.baseURL = baseURL;
+  client.defaults.baseURL = `${baseURL}/api`;
 }
 
 /**

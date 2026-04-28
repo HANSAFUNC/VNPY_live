@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-统一启动交易 + Web 看板
+统一启动交易 + Web 看板 (Vue3 独立服务版)
 
 使用方式:
     python run_trading_dashboard.py --mode paper --capital 1000000 --xt-account your_xt_account
@@ -10,8 +10,10 @@
     --capital: 初始资金，默认 1000000
     --gateway: 交易网关，默认 XT
     --xt-account: 迅投研账号（实盘/模拟盘需要）
-    --host: Web服务地址，默认 0.0.0.0
-    --port: Web服务端口，默认 8000
+    --host: Web API服务地址，默认 0.0.0.0
+    --port: Web API服务端口，默认 8000
+    --vue-port: Vue dev server端口，默认 3000
+    --no-vue: 不自动启动 Vue dev server（手动启动 npm run dev）
 """
 import subprocess
 import sys
@@ -34,6 +36,7 @@ SETTINGS["database.password"] = "vnpy"
 SETTINGS["datafeed.name"] = "xt"
 SETTINGS["datafeed.username"] = "client"
 SETTINGS["datafeed.password"] = ""
+
 
 def ensure_web_config():
     """确保 Web 配置文件存在"""
@@ -70,7 +73,8 @@ class TradingDashboardLauncher:
 
     def __init__(self):
         self.trader_proc = None
-        self.web_proc = None
+        self.web_proc = None  # FastAPI 后端
+        self.vue_proc = None  # Vue dev server
         self.rpc_ready = False
 
     def signal_handler(self, signum, frame):
@@ -105,8 +109,29 @@ class TradingDashboardLauncher:
         print(f"[ERROR] RPC 服务启动超时 ({timeout}秒)")
         return False
 
+    def wait_for_port(self, host, port, timeout=30, service_name="服务"):
+        """等待端口就绪"""
+        import socket
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(1)
+                result = sock.connect_ex((host, port))
+                sock.close()
+                if result == 0:
+                    return True
+            except Exception:
+                pass
+            time.sleep(0.5)
+        return False
+
     def start_trading(self, mode, capital, gateway, xt_account):
         """启动交易服务"""
+        import threading
+        import queue
+
         print("=" * 60)
         print(f"启动交易服务 (模式: {mode})")
         print("=" * 60)
@@ -131,28 +156,61 @@ class TradingDashboardLauncher:
         )
 
         # 读取输出直到看到 RPC 启动成功或错误
+        output_queue = queue.Queue()
+        rpc_ready_event = threading.Event()
+
+        def read_output():
+            try:
+                for line in self.trader_proc.stdout:
+                    if line:
+                        output_queue.put(line.rstrip())
+                        if "RPC 服务已启动" in line or "tcp://*:2014" in line or "RPC service started" in line:
+                            rpc_ready_event.set()
+            except Exception:
+                pass
+
+        # 启动读取线程
+        output_thread = threading.Thread(target=read_output, daemon=True)
+        output_thread.start()
+
         print("启动交易中...")
-        for line in self.trader_proc.stdout:
-            print(f"[交易] {line.rstrip()}")
-            if "RPC 服务已启动" in line or "tcp://*:2014" in line:
+        start_time = time.time()
+        timeout = 60
+
+        while time.time() - start_time < timeout:
+            # 打印输出
+            while not output_queue.empty():
+                line = output_queue.get()
+                print(f"[交易] {line}")
+                if "错误" in line or "Error" in line or "error" in line.lower():
+                    if "rpc" not in line.lower():  # 忽略 RPC 相关的非致命错误
+                        print("[ERROR] 交易启动失败")
+                        return False
+
+            # 检查进程是否退出
+            if self.trader_proc.poll() is not None:
+                print("\n[ERROR] 交易进程已退出")
+                while not output_queue.empty():
+                    print(f"[交易] {output_queue.get()}")
+                return False
+
+            # 检测 RPC 就绪
+            if rpc_ready_event.is_set():
                 self.rpc_ready = True
                 break
-            if "错误" in line or "Error" in line:
-                print("[ERROR] 交易启动失败")
-                return False
+
+            time.sleep(0.5)
 
         return self.rpc_ready
 
-    def start_web(self, host, port):
-        """启动 Web 看板"""
-        print("\n" + "=" * 60)
-        print(f"启动 Web 看板 (http://{host}:{port})")
-        print("=" * 60)
+    def start_web_backend(self, host, port):
+        """启动 FastAPI 后端服务"""
+        import threading
+        import queue
 
-        # 检查 web_dashboard 是否存在，优先使用它的前端
-        web_dashboard_static = Path("web_dashboard/static")
-        if web_dashboard_static.exists():
-            print("[OK] 检测到 web_dashboard，使用 Vue3 看板")
+        print("\n" + "=" * 60)
+        print(f"启动 Web API 后端 (http://{host}:{port})")
+        print("=" * 60)
 
         cmd = [
             sys.executable,
@@ -172,121 +230,177 @@ class TradingDashboardLauncher:
             universal_newlines=True
         )
 
-        # 等待 Web 服务启动（简单轮询）
-        import socket
+        # 读取输出同时检测端口
+        output_queue = queue.Queue()
+        server_ready = threading.Event()
+
+        def read_output():
+            """读取输出"""
+            try:
+                for line in self.web_proc.stdout:
+                    if line:
+                        output_queue.put(line.rstrip())
+                        # 检测 Uvicorn 启动成功的标志
+                        if "Application startup complete" in line or "Uvicorn running" in line:
+                            server_ready.set()
+            except Exception:
+                pass
+
+        # 启动读取线程
+        output_thread = threading.Thread(target=read_output, daemon=True)
+        output_thread.start()
+
+        # 等待服务启动（同时检测端口和输出）
+        print("等待 Web API 启动...")
         start_time = time.time()
-        error_output = []
+        timeout = 60
 
-        # 读取输出同时检查服务是否启动
-        while time.time() - start_time < 20:
-            # 非阻塞读取输出
-            import platform
-            if platform.system() == 'Windows':
-                # Windows: 使用线程读取避免阻塞
-                import threading
-                def read_output():
-                    try:
-                        line = self.web_proc.stdout.readline()
-                        if line:
-                            error_output.append(line.rstrip())
-                            print(f"[Web] {line.rstrip()}")
-                    except:
-                        pass
-                t = threading.Thread(target=read_output, daemon=True)
-                t.start()
-                t.join(timeout=0.5)
-            else:
-                # Linux/Mac: 使用 select
-                try:
-                    import select
-                    ready, _, _ = select.select([self.web_proc.stdout], [], [], 0.5)
-                    if ready:
-                        line = self.web_proc.stdout.readline()
-                        if line:
-                            error_output.append(line.rstrip())
-                            print(f"[Web] {line.rstrip()}")
-                except:
-                    pass
+        while time.time() - start_time < timeout:
+            # 打印输出
+            while not output_queue.empty():
+                line = output_queue.get()
+                print(f"[API] {line}")
 
-            # 检查进程是否还在运行
+            # 检查进程是否退出
             if self.web_proc.poll() is not None:
-                # 进程已退出，读取剩余输出
-                time.sleep(0.5)
-                remaining = self.web_proc.stdout.read()
-                if remaining:
-                    for line in remaining.split('\n'):
-                        if line.strip():
-                            error_output.append(line.rstrip())
-                            print(f"[Web] {line.rstrip()}")
-                print("\n[ERROR] Web 服务启动失败，错误输出:")
-                for line in error_output[-30:]:
-                    print(f"  {line}")
+                print("\n[ERROR] Web API 进程已退出")
+                while not output_queue.empty():
+                    print(f"[API] {output_queue.get()}")
                 return False
 
-            # 检查端口是否已监听
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(0.5)
-                result = sock.connect_ex((host, port))
-                sock.close()
-                if result == 0:
-                    print(f"[OK] Web 服务已启动: http://{host}:{port}")
-                    return True
-            except:
-                pass
+            # 检测端口或输出标志
+            if self.wait_for_port(host, port, timeout=1, service_name="Web API") or server_ready.is_set():
+                print(f"[OK] Web API 已启动: http://{host}:{port}")
+                # 继续后台读取输出
+                threading.Thread(target=read_output, daemon=True).start()
+                return True
 
             time.sleep(0.5)
 
-        print(f"[OK] Web 服务已启动（超时检测）: http://{host}:{port}")
-        return True
+        print(f"[ERROR] Web API 启动超时")
+        return False
+
+    def start_vue_dev_server(self, vue_port):
+        """启动 Vue dev server"""
+        import threading
+        import queue
+
+        vue_project = Path("web_dashboard_v2")
+        if not vue_project.exists():
+            print(f"[WARN] Vue 项目目录不存在: {vue_project}")
+            return False
+
+        print("\n" + "=" * 60)
+        print(f"启动 Vue dev server (http://localhost:{vue_port})")
+        print("=" * 60)
+
+        # 检测 npm 命令
+        npm_cmd = "npm.cmd" if sys.platform == "win32" else "npm"
+
+        cmd = [npm_cmd, "run", "dev"]
+
+        try:
+            self.vue_proc = subprocess.Popen(
+                cmd,
+                cwd=str(vue_project),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True,
+                shell=(sys.platform == "win32")
+            )
+        except FileNotFoundError:
+            print(f"[ERROR] 找不到 npm 命令，请确保 Node.js 已安装")
+            return False
+
+        # 读取输出同时检测端口
+        output_queue = queue.Queue()
+        server_ready = threading.Event()
+
+        def read_output():
+            """读取输出"""
+            try:
+                for line in self.vue_proc.stdout:
+                    if line:
+                        output_queue.put(line.rstrip())
+                        # 检测 Vite 启动成功的标志
+                        if "ready in" in line or "Local:" in line or "http://localhost:" in line:
+                            server_ready.set()
+            except Exception:
+                pass
+
+        # 启动读取线程
+        output_thread = threading.Thread(target=read_output, daemon=True)
+        output_thread.start()
+
+        # 等待服务启动
+        print("等待 Vue dev server 启动...")
+        start_time = time.time()
+        timeout = 60
+
+        while time.time() - start_time < timeout:
+            # 打印输出
+            while not output_queue.empty():
+                line = output_queue.get()
+                print(f"[Vue] {line}")
+
+            # 检查进程是否退出
+            if self.vue_proc.poll() is not None:
+                print("\n[ERROR] Vue dev server 进程已退出")
+                while not output_queue.empty():
+                    print(f"[Vue] {output_queue.get()}")
+                return False
+
+            # 检测端口或输出标志
+            if self.wait_for_port("localhost", vue_port, timeout=1, service_name="Vue") or server_ready.is_set():
+                print(f"[OK] Vue dev server 已启动: http://localhost:{vue_port}")
+                # 继续后台读取输出
+                threading.Thread(target=read_output, daemon=True).start()
+                return True
+
+            time.sleep(0.5)
+
+        print(f"[WARN] Vue dev server 启动检测超时，但可能仍在启动中...")
+        return True  # 继续运行，不阻塞
 
     def monitor(self):
-        """监控子进程输出"""
-        import select
-
+        """监控子进程状态"""
+        # 主循环：检查进程是否退出
         while True:
-            # 检查进程是否还在运行
+            time.sleep(1)
+
             if self.trader_proc and self.trader_proc.poll() is not None:
                 print("\n[ERROR] 交易服务已退出")
                 break
 
             if self.web_proc and self.web_proc.poll() is not None:
-                print("\n[ERROR] Web 服务已退出")
+                print("\n[ERROR] Web API 服务已退出")
                 break
 
-            # 读取输出（非阻塞）
-            if self.trader_proc:
-                try:
-                    import os
-                    import platform
-
-                    if platform.system() == 'Windows':
-                        # Windows 使用不同的方式读取
-                        line = self.trader_proc.stdout.readline()
-                        if line:
-                            print(f"[交易] {line.rstrip()}")
-                    else:
-                        ready, _, _ = select.select([self.trader_proc.stdout], [], [], 0.1)
-                        if ready:
-                            line = self.trader_proc.stdout.readline()
-                            if line:
-                                print(f"[交易] {line.rstrip()}")
-                except Exception:
-                    pass
-
-            if self.web_proc:
-                try:
-                    line = self.web_proc.stdout.readline()
-                    if line:
-                        print(f"[Web] {line.rstrip()}")
-                except Exception:
-                    pass
-
-            time.sleep(0.1)
+            if self.vue_proc and self.vue_proc.poll() is not None:
+                print("\n[WARN] Vue dev server 已退出")
+                self.vue_proc = None
 
     def stop(self):
         """停止所有服务"""
         print("\n停止服务中...")
+
+        if self.vue_proc:
+            self.vue_proc.terminate()
+            try:
+                self.vue_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.vue_proc.kill()
+            print("[OK] Vue dev server 已停止")
+
+        if self.web_proc:
+            self.web_proc.terminate()
+            try:
+                self.web_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.web_proc.kill()
+            print("[OK] Web API 服务已停止")
 
         if self.trader_proc:
             self.trader_proc.terminate()
@@ -296,15 +410,7 @@ class TradingDashboardLauncher:
                 self.trader_proc.kill()
             print("[OK] 交易服务已停止")
 
-        if self.web_proc:
-            self.web_proc.terminate()
-            try:
-                self.web_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                self.web_proc.kill()
-            print("[OK] Web 服务已停止")
-
-    def run(self, mode, capital, gateway, xt_account, host, port):
+    def run(self, mode, capital, gateway, xt_account, host, port, vue_port, no_vue):
         """运行启动流程"""
         # 设置信号处理
         signal.signal(signal.SIGINT, self.signal_handler)
@@ -313,6 +419,7 @@ class TradingDashboardLauncher:
         try:
             # 0. 确保 Web 配置存在
             ensure_web_config()
+
             # 1. 启动交易服务
             if not self.start_trading(mode, capital, gateway, xt_account):
                 print("交易服务启动失败，退出")
@@ -322,12 +429,17 @@ class TradingDashboardLauncher:
             if not self.wait_for_rpc(timeout=30):
                 print("RPC 服务未就绪，但继续尝试启动 Web")
 
-            # 3. 启动 Web 看板
-            if not self.start_web(host, port):
+            # 3. 启动 Web API 后端
+            if not self.start_web_backend(host, port):
                 self.stop()
                 return 1
 
-            # 4. 打印成功信息
+            # 4. 启动 Vue dev server（如果未禁用）
+            vue_started = False
+            if not no_vue:
+                vue_started = self.start_vue_dev_server(vue_port)
+
+            # 5. 打印成功信息
             print("\n" + "=" * 60)
             print("[OK] 所有服务已启动！")
             print("=" * 60)
@@ -335,23 +447,33 @@ class TradingDashboardLauncher:
             print(f"初始资金: {capital:,.0f}")
             print(f"网关: {gateway}")
             print(f"迅投账号: {xt_account}")
-            print(f"Web看板: http://{host}:{port}")
-            print("\n按 Ctrl+C 停止所有服务")
+            print("-" * 60)
+            print(f"Web API 后端: http://{host}:{port}")
+            if vue_started:
+                print(f"Vue 看板: http://localhost:{vue_port}")
+                print("\n请访问 Vue 看板地址使用系统")
+            else:
+                print(f"\nVue dev server 未启动")
+                print(f"如需手动启动，请运行: cd web_dashboard_v2 && npm run dev")
+            print("-" * 60)
+            print("按 Ctrl+C 停止所有服务")
             print("=" * 60 + "\n")
 
-            # 5. 监控进程
+            # 6. 监控进程
             self.monitor()
 
             return 0
 
         except Exception as e:
             print(f"\n发生错误: {e}")
+            import traceback
+            traceback.print_exc()
             self.stop()
             return 1
 
 
 def main():
-    parser = argparse.ArgumentParser(description='启动交易 + Web看板')
+    parser = argparse.ArgumentParser(description='启动交易 + Web看板 (Vue3独立服务版)')
     parser.add_argument('--mode', choices=['backtest', 'paper', 'live'],
                        default='paper', help='运行模式')
     parser.add_argument('--capital', type=float, default=1_000_000,
@@ -359,13 +481,21 @@ def main():
     parser.add_argument('--gateway', default='XT', help='交易网关')
     parser.add_argument('--xt-account', default='your_account',
                        help='迅投研账号（实盘/模拟盘需要）')
-    parser.add_argument('--host', default='0.0.0.0', help='Web服务地址')
-    parser.add_argument('--port', type=int, default=8000, help='Web服务端口')
+    parser.add_argument('--host', default='0.0.0.0', help='Web API服务地址')
+    parser.add_argument('--port', type=int, default=8000, help='Web API服务端口')
+    parser.add_argument('--vue-port', type=int, default=3000,
+                       help='Vue dev server端口（默认3000）')
+    parser.add_argument('--no-vue', action='store_true',
+                       help='不自动启动 Vue dev server')
 
     args = parser.parse_args()
 
     launcher = TradingDashboardLauncher()
-    return launcher.run(args.mode, args.capital, args.gateway, args.xt_account, args.host, args.port)
+    return launcher.run(
+        args.mode, args.capital, args.gateway,
+        args.xt_account, args.host, args.port,
+        args.vue_port, args.no_vue
+    )
 
 
 if __name__ == "__main__":

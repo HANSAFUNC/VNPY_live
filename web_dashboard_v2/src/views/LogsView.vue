@@ -51,10 +51,11 @@
 
 <script setup lang="ts">
 import { onMounted } from 'vue';
-import { useLogsStore } from '@/stores';
+import { useLogsStore, useAuthStore } from '@/stores';
 import type { LogLevelColor } from '@/types';
 
 const logsStore = useLogsStore();
+const authStore = useAuthStore();
 
 function getLogLevelType(level: string): LogLevelColor {
   const map: Record<string, LogLevelColor> = {
@@ -80,7 +81,10 @@ function handleClear() {
 }
 
 onMounted(() => {
-  logsStore.fetchLogs();
+  // 只有在登录状态下才请求数据
+  if (authStore.isLoggedIn) {
+    logsStore.fetchLogs();
+  }
 });
 </script>
 

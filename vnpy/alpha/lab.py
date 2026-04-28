@@ -5,20 +5,22 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from collections import defaultdict
 from functools import lru_cache
-from typing import Optional, Union
+from typing import Optional, Union, Any
 
 import polars as pl
 
 from vnpy.trader.object import BarData
 from vnpy.trader.constant import Interval
 from vnpy.trader.utility import extract_vt_symbol
+from vnpy.trader.object import Exchange
 
+from .base import BaseAlphaLab
 from .logger import logger
 from .dataset import AlphaDataset, to_datetime
 from .model import AlphaModel
 
 
-class AlphaLab:
+class AlphaLab(BaseAlphaLab):
     """Alpha Research Laboratory"""
 
     def __init__(self, lab_path: str) -> None:
@@ -49,7 +51,7 @@ class AlphaLab:
             if not path.exists():
                 path.mkdir(parents=True)
 
-    def save_bar_data(self, bars: list[BarData]) -> None:
+    def save_bars(self, bars: list[BarData]) -> None:
         """Save bar data"""
         if not bars:
             return
@@ -94,7 +96,7 @@ class AlphaLab:
         # Save to file
         new_df.write_parquet(file_path)
 
-    def load_bar_data(
+    def load_bars(
         self,
         vt_symbol: str,
         interval: Interval | str,
@@ -154,13 +156,13 @@ class AlphaLab:
 
         return bars
 
-    def load_bar_df(
+    def load_bars_df(
         self,
         vt_symbols: list[str],
         interval: Interval | str,
         start: datetime | str,
         end: datetime | str,
-        extended_days: int
+        extended_days: int = 0
     ) -> pl.DataFrame | None:
         """Load bar data as DataFrame"""
         if not vt_symbols:
@@ -347,13 +349,13 @@ class AlphaLab:
 
         return component_filters
 
-    def add_contract_setting(
+    def save_contract_setting(
         self,
         vt_symbol: str,
-        long_rate: float,
-        short_rate: float,
         size: float,
-        pricetick: float
+        pricetick: float,
+        long_rate: float = 0,
+        short_rate: float = 0
     ) -> None:
         """Add contract information"""
         contracts: dict = {}
@@ -377,7 +379,12 @@ class AlphaLab:
                 ensure_ascii=False
             )
 
-    def load_contract_setttings(self) -> dict:
+    def get_contract_setting(self, vt_symbol: str) -> Optional[dict]:
+        """Get contract setting for a specific symbol"""
+        contracts = self.load_contract_settings()
+        return contracts.get(vt_symbol)
+
+    def load_contract_settings(self) -> dict:
         """Load contract settings"""
         contracts: dict = {}
 
@@ -479,3 +486,160 @@ class AlphaLab:
     def list_all_signals(self) -> list[str]:
         """List all signals"""
         return [file.stem for file in self.model_path.glob("*.parquet")]
+
+    # ==================== BaseAlphaLab 抽象方法实现 ====================
+
+    def get_component_symbols(
+        self,
+        index_code: str,
+        start: Union[datetime, str],
+        end: Union[datetime, str]
+    ) -> list[str]:
+        """Get index component symbols (alias for load_component_symbols)"""
+        return self.load_component_symbols(index_code, start, end)
+
+    def update_daily_data(
+        self,
+        symbols: Optional[list[str]] = None,
+        start_date: Optional[Union[str, datetime]] = None,
+        end_date: Optional[Union[str, datetime]] = None,
+        incremental: bool = True
+    ) -> dict[str, Any]:
+        """Update daily data (not implemented in AlphaLab, use data downloader)"""
+        raise NotImplementedError("AlphaLab does not support update_daily_data, use external data downloader")
+
+    def get_last_update_date(
+        self,
+        vt_symbol: str,
+        interval: Interval
+    ) -> Optional[datetime]:
+        """Get last update date for a symbol"""
+        if interval == Interval.DAILY:
+            folder_path = self.daily_path
+        elif interval == Interval.MINUTE:
+            folder_path = self.minute_path
+        else:
+            return None
+
+        file_path = folder_path / f"{vt_symbol}.parquet"
+        if not file_path.exists():
+            return None
+
+        try:
+            df = pl.read_parquet(file_path)
+            if df.is_empty():
+                return None
+            last_datetime = df.select(pl.col("datetime")).tail(1).item()
+            return last_datetime
+        except Exception:
+            return None
+
+    def get_data_coverage(self) -> dict[str, Any]:
+        """Get data coverage statistics"""
+        daily_files = list(self.daily_path.glob("*.parquet"))
+        minute_files = list(self.minute_path.glob("*.parquet"))
+
+        total_symbols = len(set([f.stem for f in daily_files + minute_files]))
+
+        # Find date range
+        all_dates = []
+        for file_path in daily_files:
+            try:
+                df = pl.read_parquet(file_path)
+                if not df.is_empty():
+                    dates = df.select(pl.col("datetime")).to_series().to_list()
+                    all_dates.extend(dates)
+            except Exception:
+                continue
+
+        if all_dates:
+            all_dates.sort()
+            date_range = {"start": all_dates[0], "end": all_dates[-1]}
+            last_update = all_dates[-1]
+        else:
+            date_range = {"start": None, "end": None}
+            last_update = None
+
+        return {
+            "total_symbols": total_symbols,
+            "daily_files": len(daily_files),
+            "minute_files": len(minute_files),
+            "date_range": date_range,
+            "last_update": last_update,
+            "missing_data": []
+        }
+
+    def get_kline(
+        self,
+        vt_symbol: str,
+        period: str = "1d",
+        days: int = 100
+    ) -> list[dict]:
+        """
+        获取K线数据（Web API格式）
+
+        Parameters
+        ----------
+        vt_symbol : str
+            标的代码，如 "600519.SSE"
+        period : str
+            周期，如 "1d"(日线), "1h"(小时), "15m"(15分钟)
+        days : int
+            获取最近多少天的数据，默认100天
+
+        Returns
+        -------
+        list[dict]
+            K线数据列表，每项为 {"datetime": str, "open": float, "close": float,
+                                  "high": float, "low": float, "volume": float}
+        """
+        try:
+            # 解析 interval
+            interval_map = {
+                "1d": Interval.DAILY,
+                "daily": Interval.DAILY,
+                "1m": Interval.MINUTE,
+                "1min": Interval.MINUTE,
+                "minute": Interval.MINUTE,
+            }
+            interval = interval_map.get(period, Interval.DAILY)
+
+            # 计算日期范围
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=days)
+
+            # 加载K线数据
+            bars = self.load_bars(vt_symbol, interval, start_date, end_date)
+
+            if not bars:
+                return []
+
+            # 转换为Web API格式
+            result = []
+            for bar in bars:
+                result.append({
+                    "datetime": bar.datetime.strftime("%Y-%m-%d %H:%M:%S") if bar.datetime else "",
+                    "open": float(bar.open_price),
+                    "close": float(bar.close_price),
+                    "high": float(bar.high_price),
+                    "low": float(bar.low_price),
+                    "volume": float(bar.volume)
+                })
+
+            return result
+
+        except Exception as e:
+            logger.error(f"获取K线数据失败: {vt_symbol}, {e}")
+            return []
+
+    def switch_project(
+        self,
+        project_name: str,
+        index_code: Optional[str] = None,
+        data_source: Optional[str] = None
+    ) -> dict[str, Any]:
+        """Switch to a new project (AlphaLab does not support dynamic project switching)"""
+        raise NotImplementedError(
+            "AlphaLab does not support switch_project. "
+            "Create a new AlphaLab instance with a different path instead."
+        )

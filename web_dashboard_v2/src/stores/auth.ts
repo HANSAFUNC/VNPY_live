@@ -1,7 +1,7 @@
 import { ref, computed } from 'vue';
 import { defineStore } from 'pinia';
 import { authApi, wsManager, setApiBaseUrl } from '@/api';
-import { setToken, clearToken, getToken } from '@/utils/storage';
+import { setToken as setStorageToken, clearToken, getToken } from '@/utils/storage';
 import { saveServer, generateWsUrl } from '@/utils/servers';
 import type { LoginRequest, ServerConfig } from '@/types';
 
@@ -10,7 +10,7 @@ const STORAGE_KEY = 'vnpy_current_server';
 export const useAuthStore = defineStore(
   'auth',
   () => {
-    // State
+    // State - 不直接使用 persist 存储 token，使用 storage.ts 统一管理
     const token = ref<string | null>(getToken());
     const isLoggedIn = computed(() => !!token.value);
     const currentServer = ref<ServerConfig | null>(null);
@@ -50,7 +50,7 @@ export const useAuthStore = defineStore(
       // 2. 调用登录 API
       const response = await authApi.login(credentials);
       token.value = response.access_token;
-      setToken(response.access_token);
+      setStorageToken(response.access_token);
 
       // 3. 生成并保存服务器配置
       const serverConfig: ServerConfig = saveServer({
@@ -80,6 +80,8 @@ export const useAuthStore = defineStore(
     // 初始化：恢复服务器配置并连接
     function initialize(): void {
       loadCurrentServer();
+      // 重新从 storage 读取 token（确保格式正确）
+      token.value = getToken();
       if (currentServer.value && token.value) {
         applyServerConfig(currentServer.value);
         // 延迟连接，让页面先加载完成
@@ -123,8 +125,9 @@ export const useAuthStore = defineStore(
     };
   },
   {
+    // 只持久化 currentServer，token 由 storage.ts 管理
     persist: {
-      pick: ['token'],
+      pick: ['currentServer'],
     },
   }
 );

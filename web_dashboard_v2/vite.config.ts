@@ -31,22 +31,25 @@ export default defineConfig({
   server: {
     port: 3000,
     proxy: {
+      // WebSocket 代理
+      '/ws': {
+        target: 'ws://localhost:8000',
+        changeOrigin: true,
+        ws: true,
+      },
+      // API 代理 - 直接转发 /api/* 到后端
       '/api': {
         target: 'http://localhost:8000',
         changeOrigin: true,
-        rewrite: (path) => path.replace(/^\/api/, ''),
-      },
-      '/token': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '^/(account|position|trade|order|contract|tick|kline|trading_mode|logs)': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
-      '/ws': {
-        target: 'ws://localhost:8000',
-        ws: true,
+        configure: (proxy) => {
+          proxy.on('proxyReq', (proxyReq, req) => {
+            // 转发 Authorization 头
+            const auth = req.headers.authorization
+            if (auth) {
+              proxyReq.setHeader('Authorization', auth)
+            }
+          })
+        },
       },
     },
   },
