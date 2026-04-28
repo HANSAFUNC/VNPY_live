@@ -24,7 +24,7 @@ SETTINGS["datafeed.name"] = "xt"
 SETTINGS["datafeed.username"] = "client"
 SETTINGS["datafeed.password"] = ""
 
-from vnpy.alpha.lab_v2 import AlphaLabV2
+from vnpy.alpha.lab_v2 import AlphaLabV2, AlphaLabV2Engine
 from vnpy.alpha.strategy import TradeEngine
 from vnpy.alpha.strategy.strategies.xgb_extrema_strategy import XGBExtremaStrategy
 from vnpy.trader.constant import Interval, Direction
@@ -81,6 +81,19 @@ class LiveTrader:
             data_source="xt",
             index_code="csi300"  # 使用沪深300指数成分股
         )
+
+        # 创建并注册 AlphaLabV2Engine
+        self.lab_engine = AlphaLabV2Engine(
+            main_engine=self.main_engine,
+            event_engine=self.event_engine,
+            root_path=str(LAB_PATH),
+            project_name="default",
+            data_source="xt",
+            index_code="csi300"
+        )
+        self.main_engine.engines[self.lab_engine.engine_name] = self.lab_engine
+        logger.info(f"AlphaLabV2Engine 已注册: project=default, index=csi300")
+
         self.live_engine: TradeEngine | None = None
         self.rpc_engine = None
         self.gateway_name = "XT"  # 迅投研网关
