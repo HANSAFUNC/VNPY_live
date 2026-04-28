@@ -234,9 +234,9 @@ function buildChartOption(data: typeof labStore.klineData) {
   if (labStore.selectedSignal) {
     const sig = labStore.selectedSignal;
     const idx = dates.findIndex((dt) => dt.startsWith(sig.datetime.slice(0, 10)));
-    if (idx >= 0) {
+    if (idx >= 0 && data[idx] && dates[idx]) {
       markPoints.push({
-        coord: [dates[idx], data[idx].low * 0.99],
+        coord: [dates[idx]!, data[idx]!.low * 0.99],
         itemStyle: { color: sig.signal === 1 ? '#f56c6c' : '#67c23a' },
         symbol: sig.signal === 1 ? 'triangle' : 'pin',
         symbolSize: 16,
@@ -321,7 +321,7 @@ function buildChartOption(data: typeof labStore.klineData) {
         itemStyle: {
           color: (params: { dataIndex: number }) => {
             const d = data[params.dataIndex];
-            return d.close >= d.open ? '#f56c6c' : '#67c23a';
+            return (d?.close ?? 0) >= (d?.open ?? 0) ? '#f56c6c' : '#67c23a';
           },
         },
       },

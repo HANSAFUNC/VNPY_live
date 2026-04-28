@@ -148,7 +148,8 @@ export const useLabStore = defineStore('lab', () => {
     let maxDrawdown = 0;
     let maxPrice = entryPrice;
     for (let i = entryIndex; i <= exitIndex; i++) {
-      const price = klineData.value[i].close;
+      const price = klineData.value[i]?.close;
+      if (price === undefined) continue;
       if (price > maxPrice) {
         maxPrice = price;
       }
