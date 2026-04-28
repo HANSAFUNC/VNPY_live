@@ -10,3 +10,4 @@ export * from './trading';
 export * from './market';
 export * from './logs';
 export * from './ui';
+export * from './lab';
