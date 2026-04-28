@@ -162,7 +162,7 @@ class TradeEngine(BaseEngine):
 
     def _load_contract_settings(self) -> None:
         """加载合约交易设置"""
-        contract_settings = self.lab.load_contract_setttings()
+        contract_settings = self.lab.load_contract_settings()
         for vt_symbol in self.vt_symbols:
             setting = contract_settings.get(vt_symbol)
             if setting:
