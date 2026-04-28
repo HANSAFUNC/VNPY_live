@@ -72,7 +72,7 @@
 
 <script setup lang="ts">
 import { useRoute, useRouter } from 'vue-router';
-import { User, Sunny, Moon, Connection, DataBoard, TrendCharts, Document } from '@element-plus/icons-vue';
+import { User, Sunny, Moon, Connection, DataBoard, TrendCharts, Document, MagicStick } from '@element-plus/icons-vue';
 import { useAuthStore, useBotStore, useUIStore } from '@/stores';
 import { wsManager } from '@/api';
 import { markRaw } from 'vue';
@@ -87,6 +87,7 @@ const tabs = [
   { name: '总览', path: '/dashboard', icon: markRaw(DataBoard) },
   { name: '交易', path: '/trade', icon: markRaw(TrendCharts) },
   { name: '日志', path: '/logs', icon: markRaw(Document) },
+  { name: '实验室', path: '/lab', icon: markRaw(MagicStick) },
 ];
 
 async function handleBotChange(botId: string) {
