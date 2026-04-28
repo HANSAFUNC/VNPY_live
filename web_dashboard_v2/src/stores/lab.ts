@@ -77,10 +77,18 @@ export const useLabStore = defineStore('lab', () => {
     }
   }
 
-  async function loadSignals(signalName: string = 'signals') {
+  async function loadSignals() {
     signalsLoading.value = true;
     try {
-      signals.value = await labApi.loadSignal(signalName);
+      // First get available signal names
+      const signalNames = await labApi.getSignals();
+      if (signalNames.length === 0) {
+        signals.value = [];
+        return;
+      }
+      // Load the first signal
+      const firstSignal = signalNames[0];
+      signals.value = await labApi.loadSignal(firstSignal);
     } catch (error) {
       console.error('加载信号失败:', error);
       signals.value = [];

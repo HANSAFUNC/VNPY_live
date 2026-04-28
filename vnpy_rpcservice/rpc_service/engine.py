@@ -307,16 +307,16 @@ class RpcEngine(BaseEngine):
             return engine.list_all_signals()
         return []
 
-    def lab_load_signal(self, name: str) -> list:
+    def lab_load_signal(self, name: str) -> dict:
         """加载信号数据"""
         engine = self.get_lab_engine()
         if engine:
             df = engine.load_signal(name)
             if df is None:
-                return None
+                return {"error": f"Signal {name} not found"}
             # Convert DataFrame to list of dicts for JSON serialization
-            return df.to_dicts()
-        return None
+            return {"data": df.to_dicts()}
+        return {"error": "Lab engine not available"}
 
     def lab_remove_signal(self, name: str) -> dict:
         """删除信号"""
