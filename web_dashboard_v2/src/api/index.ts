@@ -5,3 +5,4 @@ export { marketApi } from './market';
 export { logsApi } from './logs';
 export { wsManager } from './websocket';
 export type { MessageHandler } from './websocket';
+export { labApi } from './lab';
