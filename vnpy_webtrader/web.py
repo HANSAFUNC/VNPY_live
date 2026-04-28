@@ -7,7 +7,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from enum import Enum
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 import asyncio
 import json
 from datetime import datetime, timedelta, timezone
@@ -76,7 +76,7 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 9999999        # 令牌超时（分钟）
 pwd_context: CryptContext = CryptContext(schemes=["sha256_crypt"], deprecated="auto")
 
 # FastAPI密码鉴权工具
-oauth2_scheme: OAuth2PasswordBearer = OAuth2PasswordBearer(tokenUrl="token")
+oauth2_scheme: OAuth2PasswordBearer = OAuth2PasswordBearer(tokenUrl="/api/token")
 
 # RPC客户端
 rpc_client: RpcClient = None
@@ -177,10 +177,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 确定静态文件目录
+# 确定静态文件目录（优先级：web_dashboard_v2 > web_dashboard > vnpy_webtrader/static）
+web_dashboard_v2_dist = Path(__file__).parent.parent / "web_dashboard_v2" / "dist"
 web_dashboard_static = Path(__file__).parent.parent / "web_dashboard" / "static"
 vnpy_webtrader_static = Path(__file__).parent / "static"
-static_directory = web_dashboard_static if web_dashboard_static.exists() else vnpy_webtrader_static
+
+if web_dashboard_v2_dist.exists():
+    static_directory = web_dashboard_v2_dist
+    dashboard_version = "v2 (Vue3 + Element Plus)"
+elif web_dashboard_static.exists():
+    static_directory = web_dashboard_static
+    dashboard_version = "v1"
+else:
+    static_directory = vnpy_webtrader_static
+    dashboard_version = "builtin"
+
+print(f"[Web] 使用看板版本: {dashboard_version}, 静态目录: {static_directory}")
 
 # 挂载静态文件目录
 app.mount("/static", StaticFiles(directory=static_directory), name="static")
@@ -190,12 +202,21 @@ app.mount("/static", StaticFiles(directory=static_directory), name="static")
 def index() -> HTMLResponse:
     """获取主页面"""
     try:
-        # 优先使用 web_dashboard 的 index.html（如果存在）
-        web_dashboard_path: Path = Path(__file__).parent.parent.joinpath("web_dashboard/static/index.html")
-        index_path: Path = web_dashboard_path if web_dashboard_path.exists() else Path(__file__).parent.joinpath("static/index.html")
-        print(index_path)
-        if not index_path.exists():
-            return HTMLResponse(f"<h1>404</h1><p>找不到页面: {index_path}</p>", status_code=404)
+        # 按优先级查找 index.html
+        index_paths = [
+            Path(__file__).parent.parent / "web_dashboard_v2" / "dist" / "index.html",
+            Path(__file__).parent.parent / "web_dashboard" / "static" / "index.html",
+            Path(__file__).parent / "static" / "index.html",
+        ]
+
+        index_path: Path | None = None
+        for path in index_paths:
+            if path.exists():
+                index_path = path
+                break
+
+        if index_path is None:
+            return HTMLResponse(f"<h1>404</h1><p>找不到页面，搜索路径: {[str(p) for p in index_paths]}</p>", status_code=404)
 
         with open(index_path, encoding="utf-8") as f:
             content: str = f.read()
@@ -205,7 +226,7 @@ def index() -> HTMLResponse:
         return HTMLResponse(f"<h1>错误</h1><p>{e}</p>", status_code=500)
 
 
-@app.post("/token", response_model=Token)
+@app.post("/api/token", response_model=Token)
 def login(form_data: OAuth2PasswordRequestForm = Depends()) -> dict:  # noqa: B008
     """用户登录"""
     auth_result = authenticate_user(USERNAME, form_data.username, form_data.password)
@@ -222,7 +243,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends()) -> dict:  # noqa: B0
     return {"access_token": access_token, "token_type": "bearer"}
 
 
-@app.post("/tick/{vt_symbol}")
+@app.post("/api/tick/{vt_symbol}")
 def subscribe(vt_symbol: str, access: bool = Depends(get_access)) -> None:  # noqa: ARG001
     """订阅行情"""
     contract: ContractData | None = rpc_client.get_contract(vt_symbol)
@@ -237,7 +258,7 @@ def subscribe(vt_symbol: str, access: bool = Depends(get_access)) -> None:  # no
     rpc_client.subscribe(req, contract.gateway_name)
 
 
-@app.get("/tick")
+@app.get("/api/tick")
 def get_all_ticks(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
     """查询行情信息"""
     ticks: list[TickData] = rpc_client.get_all_ticks()
@@ -256,7 +277,21 @@ class OrderRequestModel(BaseModel):
     reference: str = ""
 
 
-@app.post("/order")
+class SwitchProjectRequest(BaseModel):
+    """切换项目请求"""
+    project_name: str
+    index_code: Optional[str] = None
+    data_source: Optional[str] = None
+
+
+class CreateProjectRequest(BaseModel):
+    """创建项目请求"""
+    project_name: str
+    index_code: str = "csi300"
+    data_source: str = "xt"
+
+
+@app.post("/api/order")
 def send_order(model: OrderRequestModel, access: bool = Depends(get_access)) -> str:  # noqa: ARG001
     """委托下单"""
     req: OrderRequest = OrderRequest(**model.__dict__)
@@ -273,7 +308,7 @@ def send_order(model: OrderRequestModel, access: bool = Depends(get_access)) -> 
     return vt_orderid
 
 
-@app.delete("/order/{vt_orderid}")
+@app.delete("/api/order/{vt_orderid}")
 def cancel_order(vt_orderid: str, access: bool = Depends(get_access)) -> None:  # noqa: ARG001
     """委托撤单"""
     order: OrderData | None = rpc_client.get_order(vt_orderid)
@@ -288,42 +323,42 @@ def cancel_order(vt_orderid: str, access: bool = Depends(get_access)) -> None:  
     rpc_client.cancel_order(req, order.gateway_name)
 
 
-@app.get("/order")
+@app.get("/api/order")
 def get_all_orders(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
     """查询委托信息"""
     orders: list[OrderData] = rpc_client.get_all_orders()
     return [to_dict(order) for order in orders]
 
 
-@app.get("/trade")
+@app.get("/api/trade")
 def get_all_trades(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
     """查询成交信息"""
     trades: list[TradeData] = rpc_client.get_all_trades()
     return [to_dict(trade) for trade in trades]
 
 
-@app.get("/position")
+@app.get("/api/position")
 def get_all_positions(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
     """查询持仓信息"""
     positions: list[PositionData] = rpc_client.get_all_positions()
     return [to_dict(position) for position in positions]
 
 
-@app.get("/account")
+@app.get("/api/account")
 def get_all_accounts(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
     """查询账户资金"""
     accounts: list[AccountData] = rpc_client.get_all_accounts()
     return [to_dict(account) for account in accounts]
 
 
-@app.get("/contract")
+@app.get("/api/contract")
 def get_all_contracts(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
     """查询合约信息"""
     contracts: list[ContractData] = rpc_client.get_all_contracts()
     return [to_dict(contract) for contract in contracts]
 
 
-@app.get("/trading_mode")
+@app.get("/api/trading_mode")
 def get_trading_mode(access: bool = Depends(get_access)) -> dict:  # noqa: ARG001
     """查询交易模式（实盘/模拟盘）"""
     try:
@@ -344,7 +379,7 @@ def get_trading_mode(access: bool = Depends(get_access)) -> dict:  # noqa: ARG00
         return {"mode": "paper", "mode_text": "模拟盘", "engine": "unknown"}
 
 
-@app.get("/kline/{vt_symbol}")
+@app.get("/api/kline/{vt_symbol}")
 def get_kline_data(
     vt_symbol: str,
     period: str = Query("1d", description="周期: 1d, 1h, 15m"),
@@ -363,7 +398,117 @@ def get_kline_data(
         return []
 
 
-@app.get("/logs")
+@app.get("/api/lab/kline/{vt_symbol}")
+def get_lab_kline(
+    vt_symbol: str,
+    period: str = Query("1d", description="周期: 1d, 1m"),
+    days: int = Query(100, description="天数"),
+    access: bool = Depends(get_access)
+) -> list:
+    """获取实验室K线数据"""
+    try:
+        if hasattr(rpc_client, 'lab_get_kline'):
+            return rpc_client.lab_get_kline(vt_symbol, period, days)
+        return []
+    except Exception as e:
+        logger.error(f"获取实验室K线失败: {e}")
+        return []
+
+
+@app.get("/api/lab/components")
+def get_lab_components(
+    start: str = Query(None, description="开始日期 YYYY-MM-DD"),
+    end: str = Query(None, description="结束日期 YYYY-MM-DD"),
+    access: bool = Depends(get_access)
+) -> list:
+    """获取当前指数成分股"""
+    try:
+        if hasattr(rpc_client, 'lab_get_components'):
+            return rpc_client.lab_get_components(start, end)
+        return []
+    except Exception as e:
+        logger.error(f"获取成分股失败: {e}")
+        return []
+
+
+@app.get("/api/lab/coverage")
+def get_lab_coverage(access: bool = Depends(get_access)) -> dict:
+    """获取数据覆盖情况"""
+    try:
+        if hasattr(rpc_client, 'lab_get_coverage'):
+            return rpc_client.lab_get_coverage()
+        return {"error": "RPC method not available"}
+    except Exception as e:
+        logger.error(f"获取数据覆盖失败: {e}")
+        return {"error": str(e)}
+
+
+@app.get("/api/lab/projects")
+def get_lab_projects(access: bool = Depends(get_access)) -> list:
+    """列出所有实验室项目"""
+    try:
+        if hasattr(rpc_client, 'lab_list_projects'):
+            return rpc_client.lab_list_projects()
+        return []
+    except Exception as e:
+        logger.error(f"获取项目列表失败: {e}")
+        return []
+
+
+@app.post("/api/lab/project/switch")
+def switch_lab_project(
+    request: SwitchProjectRequest,
+    access: bool = Depends(get_access)
+) -> dict:
+    """切换实验室项目"""
+    try:
+        if hasattr(rpc_client, 'lab_switch_project'):
+            return rpc_client.lab_switch_project(
+                request.project_name,
+                request.index_code,
+                request.data_source
+            )
+        return {"success": False, "message": "RPC method not available"}
+    except Exception as e:
+        logger.error(f"切换项目失败: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.post("/api/lab/project/create")
+def create_lab_project(
+    request: CreateProjectRequest,
+    access: bool = Depends(get_access)
+) -> dict:
+    """创建实验室项目"""
+    try:
+        if hasattr(rpc_client, 'lab_create_project'):
+            return rpc_client.lab_create_project(
+                request.project_name,
+                request.index_code,
+                request.data_source
+            )
+        return {"success": False, "message": "RPC method not available"}
+    except Exception as e:
+        logger.error(f"创建项目失败: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.delete("/api/lab/project/{project_name}")
+def delete_lab_project(
+    project_name: str,
+    access: bool = Depends(get_access)
+) -> dict:
+    """删除实验室项目"""
+    try:
+        if hasattr(rpc_client, 'lab_delete_project'):
+            return rpc_client.lab_delete_project(project_name)
+        return {"success": False, "message": "RPC method not available"}
+    except Exception as e:
+        logger.error(f"删除项目失败: {e}")
+        return {"success": False, "message": str(e)}
+
+
+@app.get("/api/logs")
 def get_logs(
     level: str = Query("all", description="日志级别: all, DEBUG, INFO, WARNING, ERROR"),
     source: str = Query("all", description="日志来源: all, system, trade, strategy"),
@@ -422,7 +567,8 @@ async def get_websocket_access(
     return True
 
 
-# websocket传递数据
+# websocket传递数据 - 支持 /ws 和 /ws/
+@app.websocket("/ws")
 @app.websocket("/ws/")
 async def websocket_endpoint(websocket: WebSocket, access: bool = Depends(get_websocket_access)) -> None:  # noqa: ARG001
     """Weboskcet连接处理"""
