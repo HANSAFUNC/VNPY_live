@@ -315,7 +315,13 @@ class RpcEngine(BaseEngine):
             if df is None:
                 return {"error": f"Signal {name} not found"}
             # Convert DataFrame to list of dicts for JSON serialization
-            return {"data": df.to_dicts()}
+            records = df.to_dicts()
+            # Convert datetime objects to strings
+            for record in records:
+                for key, value in record.items():
+                    if hasattr(value, 'strftime'):  # datetime object
+                        record[key] = value.strftime('%Y-%m-%d %H:%M:%S')
+            return {"data": records}
         return {"error": "Lab engine not available"}
 
     def lab_remove_signal(self, name: str) -> dict:
