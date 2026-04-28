@@ -44,6 +44,12 @@ const routes = [
         component: () => import('@/views/LogsView.vue'),
         meta: { requiresAuth: true, title: '日志' },
       },
+      {
+        path: 'lab',
+        name: 'Lab',
+        component: () => import('@/views/LabView.vue'),
+        meta: { requiresAuth: true, title: '实验室' },
+      },
     ],
   },
   {
