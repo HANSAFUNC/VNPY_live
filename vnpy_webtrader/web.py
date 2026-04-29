@@ -263,10 +263,14 @@ def subscribe(vt_symbol: str, access: bool = Depends(get_access)) -> None:  # no
 
 
 @app.get("/api/tick")
-def get_all_ticks(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
+def get_all_ticks(access: bool = Depends(get_access)) -> ApiResponse[list]:  # noqa: ARG001
     """查询行情信息"""
-    ticks: list[TickData] = rpc_client.get_all_ticks()
-    return [to_dict(tick) for tick in ticks]
+    try:
+        data = [to_dict(tick) for tick in rpc_client.get_all_ticks()]
+        return success_response(data)
+    except Exception as e:
+        logger.error(f"获取Ticks失败: {e}")
+        return Errors.internal_error(str(e))
 
 
 class OrderRequestModel(BaseModel):
@@ -328,42 +332,62 @@ def cancel_order(vt_orderid: str, access: bool = Depends(get_access)) -> None:  
 
 
 @app.get("/api/order")
-def get_all_orders(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
+def get_all_orders(access: bool = Depends(get_access)) -> ApiResponse[list]:  # noqa: ARG001
     """查询委托信息"""
-    orders: list[OrderData] = rpc_client.get_all_orders()
-    return [to_dict(order) for order in orders]
+    try:
+        data = [to_dict(order) for order in rpc_client.get_all_orders()]
+        return success_response(data)
+    except Exception as e:
+        logger.error(f"获取委托失败: {e}")
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/trade")
-def get_all_trades(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
+def get_all_trades(access: bool = Depends(get_access)) -> ApiResponse[list]:  # noqa: ARG001
     """查询成交信息"""
-    trades: list[TradeData] = rpc_client.get_all_trades()
-    return [to_dict(trade) for trade in trades]
+    try:
+        data = [to_dict(trade) for trade in rpc_client.get_all_trades()]
+        return success_response(data)
+    except Exception as e:
+        logger.error(f"获取成交失败: {e}")
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/position")
-def get_all_positions(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
+def get_all_positions(access: bool = Depends(get_access)) -> ApiResponse[list]:  # noqa: ARG001
     """查询持仓信息"""
-    positions: list[PositionData] = rpc_client.get_all_positions()
-    return [to_dict(position) for position in positions]
+    try:
+        data = [to_dict(position) for position in rpc_client.get_all_positions()]
+        return success_response(data)
+    except Exception as e:
+        logger.error(f"获取持仓失败: {e}")
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/account")
-def get_all_accounts(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
+def get_all_accounts(access: bool = Depends(get_access)) -> ApiResponse[list]:  # noqa: ARG001
     """查询账户资金"""
-    accounts: list[AccountData] = rpc_client.get_all_accounts()
-    return [to_dict(account) for account in accounts]
+    try:
+        data = [to_dict(account) for account in rpc_client.get_all_accounts()]
+        return success_response(data)
+    except Exception as e:
+        logger.error(f"获取账户失败: {e}")
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/contract")
-def get_all_contracts(access: bool = Depends(get_access)) -> list:  # noqa: ARG001
+def get_all_contracts(access: bool = Depends(get_access)) -> ApiResponse[list]:  # noqa: ARG001
     """查询合约信息"""
-    contracts: list[ContractData] = rpc_client.get_all_contracts()
-    return [to_dict(contract) for contract in contracts]
+    try:
+        data = [to_dict(contract) for contract in rpc_client.get_all_contracts()]
+        return success_response(data)
+    except Exception as e:
+        logger.error(f"获取合约失败: {e}")
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/trading_mode")
-def get_trading_mode(access: bool = Depends(get_access)) -> dict:  # noqa: ARG001
+def get_trading_mode(access: bool = Depends(get_access)) -> ApiResponse[dict]:  # noqa: ARG001
     """查询交易模式（实盘/模拟盘）"""
     try:
         # 从RPC客户端获取引擎信息
@@ -372,15 +396,16 @@ def get_trading_mode(access: bool = Depends(get_access)) -> dict:  # noqa: ARG00
         for engine_name, engine in engines.items():
             if hasattr(engine, 'gateway_name'):
                 is_paper = engine.gateway_name == "PAPER"
-                return {
+                return success_response({
                     "mode": "paper" if is_paper else "live",
                     "mode_text": "模拟盘" if is_paper else "实盘",
                     "engine": engine_name
-                }
+                })
         # 默认返回模拟盘（如果无法确定）
-        return {"mode": "paper", "mode_text": "模拟盘", "engine": "unknown"}
-    except Exception:
-        return {"mode": "paper", "mode_text": "模拟盘", "engine": "unknown"}
+        return success_response({"mode": "paper", "mode_text": "模拟盘", "engine": "unknown"})
+    except Exception as e:
+        logger.error(f"获取交易模式失败: {e}")
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/kline/{vt_symbol}")
