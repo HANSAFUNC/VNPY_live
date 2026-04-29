@@ -467,53 +467,56 @@ def get_lab_projects(access: bool = Depends(get_access)) -> ApiResponse[list[str
 def switch_lab_project(
     request: SwitchProjectRequest,
     access: bool = Depends(get_access)
-) -> dict:
+) -> ApiResponse[dict]:
     """切换实验室项目"""
     try:
         if hasattr(rpc_client, 'lab_switch_project'):
-            return rpc_client.lab_switch_project(
+            data = rpc_client.lab_switch_project(
                 request.project_name,
                 request.index_code,
                 request.data_source
             )
-        return {"success": False, "message": "RPC method not available"}
+            return success_response(data)
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"切换项目失败: {e}")
-        return {"success": False, "message": str(e)}
+        return Errors.internal_error(str(e))
 
 
 @app.post("/api/lab/project/create")
 def create_lab_project(
     request: CreateProjectRequest,
     access: bool = Depends(get_access)
-) -> dict:
+) -> ApiResponse[dict]:
     """创建实验室项目"""
     try:
         if hasattr(rpc_client, 'lab_create_project'):
-            return rpc_client.lab_create_project(
+            data = rpc_client.lab_create_project(
                 request.project_name,
                 request.index_code,
                 request.data_source
             )
-        return {"success": False, "message": "RPC method not available"}
+            return success_response(data)
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"创建项目失败: {e}")
-        return {"success": False, "message": str(e)}
+        return Errors.internal_error(str(e))
 
 
 @app.delete("/api/lab/project/{project_name}")
 def delete_lab_project(
     project_name: str,
     access: bool = Depends(get_access)
-) -> dict:
+) -> ApiResponse[dict]:
     """删除实验室项目"""
     try:
         if hasattr(rpc_client, 'lab_delete_project'):
-            return rpc_client.lab_delete_project(project_name)
-        return {"success": False, "message": "RPC method not available"}
+            data = rpc_client.lab_delete_project(project_name)
+            return success_response(data)
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"删除项目失败: {e}")
-        return {"success": False, "message": str(e)}
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/lab/signals")
