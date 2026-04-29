@@ -1,10 +1,13 @@
 from pathlib import Path
 import sys
+import logging
 
 # 添加项目根目录到路径（支持从任意位置运行）
 PROJECT_ROOT = Path(__file__).parent.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+
+logger = logging.getLogger(__name__)
 
 from enum import Enum
 from typing import Any, Literal, Optional
@@ -42,6 +45,7 @@ from vnpy.trader.constant import (
     Offset,
 )
 from vnpy.trader.utility import load_json, get_file_path
+from vnpy_webtrader.response import ApiResponse, success_response, error_response, Errors
 
 
 # Web服务运行配置
@@ -384,18 +388,18 @@ def get_kline_data(
     vt_symbol: str,
     period: str = Query("1d", description="周期: 1d, 1h, 15m"),
     access: bool = Depends(get_access)  # noqa: ARG001
-) -> list:
+) -> ApiResponse[list]:
     """获取K线数据"""
     try:
         # 从RPC获取K线数据
         if hasattr(rpc_client, 'get_kline'):
             data = rpc_client.get_kline(vt_symbol, period)
-            return data if data else []
-        # 如果没有K线接口，返回空数组
-        return []
+            return success_response(data if data else [])
+        # 如果没有K线接口，返回错误
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"获取K线数据失败: {e}")
-        return []
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/lab/kline/{vt_symbol}")
