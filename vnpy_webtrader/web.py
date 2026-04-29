@@ -520,48 +520,50 @@ def delete_lab_project(
 
 
 @app.get("/api/lab/signals")
-def get_lab_signals(access: bool = Depends(get_access)) -> list:
+def get_lab_signals(access: bool = Depends(get_access)) -> ApiResponse[list[str]]:
     """列出所有信号"""
     try:
         if hasattr(rpc_client, 'lab_list_signals'):
-            return rpc_client.lab_list_signals()
-        return []
+            data = rpc_client.lab_list_signals()
+            return success_response(data if data else [])
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"获取信号列表失败: {e}")
-        return []
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/lab/signal/{name}")
 def get_lab_signal(
     name: str,
     access: bool = Depends(get_access)
-) -> dict:
+) -> ApiResponse[list[dict]]:
     """加载信号数据"""
     try:
         if hasattr(rpc_client, 'lab_load_signal'):
             result = rpc_client.lab_load_signal(name)
-            if result is None:
-                return {"error": f"Signal {name} not found"}
-            return {"data": result}
-        return {"error": "RPC method not available"}
+            if result is None or (isinstance(result, dict) and "error" in result):
+                return Errors.not_found(f"Signal {name}")
+            return success_response(result)
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"加载信号失败: {e}")
-        return {"error": str(e)}
+        return Errors.internal_error(str(e))
 
 
 @app.delete("/api/lab/signal/{name}")
 def delete_lab_signal(
     name: str,
     access: bool = Depends(get_access)
-) -> dict:
+) -> ApiResponse[dict]:
     """删除信号"""
     try:
         if hasattr(rpc_client, 'lab_remove_signal'):
-            return rpc_client.lab_remove_signal(name)
-        return {"success": False, "message": "RPC method not available"}
+            data = rpc_client.lab_remove_signal(name)
+            return success_response(data)
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"删除信号失败: {e}")
-        return {"success": False, "message": str(e)}
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/logs")
