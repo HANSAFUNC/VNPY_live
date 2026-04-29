@@ -50,12 +50,8 @@ export const labApi = {
   },
 
   // 加载信号数据
-  async loadSignal(name: string): Promise<Signal[]> {
-    const result = await client.get(`/lab/signal/${name}`) as { data: Signal[]; error?: string };
-    if (result.error) {
-      throw new Error(result.error);
-    }
-    return result.data;
+  loadSignal(name: string): Promise<Signal[]> {
+    return client.get(`/lab/signal/${name}`);
   },
 
   // 删除信号
