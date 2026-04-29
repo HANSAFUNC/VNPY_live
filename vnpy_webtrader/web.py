@@ -408,15 +408,16 @@ def get_lab_kline(
     period: str = Query("1d", description="周期: 1d, 1m"),
     days: int = Query(100, description="天数"),
     access: bool = Depends(get_access)
-) -> list:
+) -> ApiResponse[list[dict]]:
     """获取实验室K线数据"""
     try:
         if hasattr(rpc_client, 'lab_get_kline'):
-            return rpc_client.lab_get_kline(vt_symbol, period, days)
-        return []
+            data = rpc_client.lab_get_kline(vt_symbol, period, days)
+            return success_response(data if data else [])
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"获取实验室K线失败: {e}")
-        return []
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/lab/components")
@@ -424,39 +425,42 @@ def get_lab_components(
     start: str = Query(None, description="开始日期 YYYY-MM-DD"),
     end: str = Query(None, description="结束日期 YYYY-MM-DD"),
     access: bool = Depends(get_access)
-) -> list:
+) -> ApiResponse[list[str]]:
     """获取当前指数成分股"""
     try:
         if hasattr(rpc_client, 'lab_get_components'):
-            return rpc_client.lab_get_components(start, end)
-        return []
+            data = rpc_client.lab_get_components(start, end)
+            return success_response(data if data else [])
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"获取成分股失败: {e}")
-        return []
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/lab/coverage")
-def get_lab_coverage(access: bool = Depends(get_access)) -> dict:
+def get_lab_coverage(access: bool = Depends(get_access)) -> ApiResponse[dict]:
     """获取数据覆盖情况"""
     try:
         if hasattr(rpc_client, 'lab_get_coverage'):
-            return rpc_client.lab_get_coverage()
-        return {"error": "RPC method not available"}
+            data = rpc_client.lab_get_coverage()
+            return success_response(data)
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"获取数据覆盖失败: {e}")
-        return {"error": str(e)}
+        return Errors.internal_error(str(e))
 
 
 @app.get("/api/lab/projects")
-def get_lab_projects(access: bool = Depends(get_access)) -> list:
+def get_lab_projects(access: bool = Depends(get_access)) -> ApiResponse[list[str]]:
     """列出所有实验室项目"""
     try:
         if hasattr(rpc_client, 'lab_list_projects'):
-            return rpc_client.lab_list_projects()
-        return []
+            data = rpc_client.lab_list_projects()
+            return success_response(data if data else [])
+        return Errors.rpc_error()
     except Exception as e:
         logger.error(f"获取项目列表失败: {e}")
-        return []
+        return Errors.internal_error(str(e))
 
 
 @app.post("/api/lab/project/switch")
