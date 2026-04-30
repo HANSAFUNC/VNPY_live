@@ -58,7 +58,7 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
         BaseEngine.__init__(self, main_engine, event_engine, self.engine_name)
 
         # 基础配置
-        self.root: Path = Path(root_path)
+        self.root: Path = Path(root_path).resolve().absolute()
         self.project_name: str = project_name
         self.data_source: str = data_source
         self.index_code: str = index_code
@@ -204,6 +204,44 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
     def save_bars(self, bars: list[BarData]) -> None:
         """保存 K 线数据"""
         self.data_store.save_bars(bars)
+
+    def save_bar_data(self, bars: list[BarData]) -> None:
+        """保存 K 线数据 (别名，兼容旧接口)"""
+        return self.save_bars(bars)
+
+    def load_bar_df(
+        self,
+        start: Union[datetime, str],
+        end: Union[datetime, str],
+        interval: Interval = Interval.DAILY,
+        extended_days: int = 0
+    ) -> Optional[pl.DataFrame]:
+        """加载指数成分股 K 线数据为 DataFrame (兼容旧接口)
+
+        Parameters
+        ----------
+        start : datetime or str
+            开始日期
+        end : datetime or str
+            结束日期
+        interval : Interval
+            K 线周期
+        extended_days : int
+            向前扩展的天数（用于计算指标）
+
+        Returns
+        -------
+        pl.DataFrame or None
+            包含 vt_symbol 列的 DataFrame
+        """
+        # 获取成分股列表
+        symbols = self.get_component_symbols(self.index_code, start, end)
+        if not symbols:
+            logger.warning(f"未找到指数 {self.index_code} 的成分股")
+            return None
+
+        # 使用现有的 load_bars_df 方法
+        return self.load_bars_df(symbols, interval, start, end, extended_days)
 
     def save_contract_setting(
         self,
@@ -399,6 +437,10 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
             # 计算日期范围
             end_date = datetime.now()
             start_date = end_date - timedelta(days=days)
+
+            logger.info(f"[AlphaLabV2Engine] get_kline called: {vt_symbol}, period={period}, days={days}")
+            logger.info(f"[AlphaLabV2Engine] root={self.root}, data_source={self.data_source}")
+            logger.info(f"[AlphaLabV2Engine] data_store.root={self.data_store.root}, data_store.source={self.data_store.source}")
 
             # 加载K线数据
             bars = self.load_bars(vt_symbol, interval, start_date, end_date)

@@ -18,6 +18,11 @@ export interface Signal {
   datetime: string;
   vt_symbol: string;
   signal: number; // 1=buy, -1=sell
+  // Calculated fields
+  entry_price?: number;
+  exit_price?: number;
+  return?: number;
+  max_drawdown?: number;
 }
 
 export const labApi = {

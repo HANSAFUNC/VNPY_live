@@ -25,6 +25,9 @@ from pathlib import Path
 
 from vnpy.trader.setting import SETTINGS
 
+# 全局配置：是否显示交易服务详细输出
+VERBOSE = True  # 设置为 True 开启详细输出
+
 # 配置数据库和数据服务
 SETTINGS["database.name"] = "postgresql"
 SETTINGS["database.host"] = "localhost"
@@ -169,29 +172,38 @@ class TradingDashboardLauncher:
             except Exception:
                 pass
 
+        def print_output():
+            """后台线程持续打印输出"""
+            if not VERBOSE:
+                return
+            try:
+                while True:
+                    try:
+                        line = output_queue.get(timeout=0.1)
+                        print(f"[交易] {line}")
+                    except queue.Empty:
+                        if self.trader_proc.poll() is not None:
+                            break
+                        continue
+            except Exception:
+                pass
+
         # 启动读取线程
         output_thread = threading.Thread(target=read_output, daemon=True)
         output_thread.start()
+
+        # 启动打印线程
+        print_thread = threading.Thread(target=print_output, daemon=True)
+        print_thread.start()
 
         print("启动交易中...")
         start_time = time.time()
         timeout = 60
 
         while time.time() - start_time < timeout:
-            # 打印输出
-            while not output_queue.empty():
-                line = output_queue.get()
-                print(f"[交易] {line}")
-                if "错误" in line or "Error" in line or "error" in line.lower():
-                    if "rpc" not in line.lower():  # 忽略 RPC 相关的非致命错误
-                        print("[ERROR] 交易启动失败")
-                        return False
-
             # 检查进程是否退出
             if self.trader_proc.poll() is not None:
                 print("\n[ERROR] 交易进程已退出")
-                while not output_queue.empty():
-                    print(f"[交易] {output_queue.get()}")
                 return False
 
             # 检测 RPC 就绪

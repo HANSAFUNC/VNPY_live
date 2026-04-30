@@ -6,7 +6,7 @@ import json
 
 import polars as pl
 
-from vnpy.trader.constant import Interval
+from vnpy.trader.constant import Interval, Exchange
 from vnpy.trader.object import BarData
 from vnpy.alpha.logger import logger
 
@@ -30,7 +30,10 @@ class DataStore:
         source : str
             数据源名称，如 "xt"（迅投）、"rq"（ricequant）
         """
-        self.root = Path(root_path)
+        logger.info(f"[DataStore] Initializing with root_path={root_path}, source={source}")
+        self.root = Path(root_path).resolve().absolute()
+        logger.info(f"[DataStore] self.root resolved to: {self.root}")
+        logger.info(f"[DataStore] self.root.is_absolute(): {self.root.is_absolute()}")
         self.source = source
 
         # 数据目录
@@ -108,6 +111,22 @@ class DataStore:
 
         file_path = folder / f"{vt_symbol}.parquet"
 
+        # Debug logging
+        logger.info(f"[DataStore] Loading bars for {vt_symbol}")
+        logger.info(f"[DataStore] self.root = {self.root}")
+        logger.info(f"[DataStore] self.daily_path = {self.daily_path}")
+        logger.info(f"[DataStore] File path: {file_path}")
+        logger.info(f"[DataStore] File exists: {file_path.exists()}")
+        logger.info(f"[DataStore] Absolute file path: {file_path.absolute()}")
+        logger.info(f"[DataStore] File exists (absolute): {file_path.absolute().exists()}")
+        logger.info(f"[DataStore] Daily path: {self.daily_path}")
+        logger.info(f"[DataStore] Daily path exists: {self.daily_path.exists()}")
+
+        # List available symbols for debugging
+        if self.daily_path.exists():
+            available = [f.stem for f in self.daily_path.glob("*.parquet")][:5]
+            logger.info(f"[DataStore] Available symbols (first 5): {available}")
+
         if not file_path.exists():
             return []
 
@@ -120,7 +139,8 @@ class DataStore:
         bars = []
         for row in df.iter_rows(named=True):
             symbol = vt_symbol.split(".")[0]
-            exchange = vt_symbol.split(".")[1]
+            exchange_str = vt_symbol.split(".")[1]
+            exchange = Exchange(exchange_str)
             bars.append(BarData(
                 symbol=symbol,
                 exchange=exchange,

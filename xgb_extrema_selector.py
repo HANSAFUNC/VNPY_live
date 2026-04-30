@@ -80,8 +80,10 @@ class XGBoostExtremaSelector:
         logger.info("=" * 60)
 
         # 加载成分股代码（从索引层）
-        component_symbols = self.lab.load_component_symbols(
-            self.start, self.end
+        component_symbols = self.lab.get_component_symbols(
+            self.lab.index_code,
+            self.start,
+            self.end
         )
         logger.info(f"成分股数量：{len(component_symbols)}")
 
@@ -108,15 +110,18 @@ class XGBoostExtremaSelector:
         logger.info(f"  - 缓冲期：{self.extended_days}天")
 
         # 加载成分股数据（从计算的开始时间到 end）
-        # AlphaLabV2: load_bar_df 不需要 symbols 参数，自动从 index_code 获取
-        df = self.lab.load_bar_df(
+        # AlphaLabV2: load_bars_df 需要传入 symbols 参数
+        df = self.lab.load_bars_df(
+            vt_symbols=top_symbols,
+            interval=self.interval,
             start=data_start_str,
             end=self.end,
-            interval=self.interval,
             extended_days=0
         )
 
         # 检查数据是否足够，不足时尝试下载
+        if df is None:
+            df = pl.DataFrame()
         df = self._ensure_sufficient_data(df, top_symbols, data_start_str, total_days)
 
         logger.info(f"数据形状：{df.shape}")
@@ -451,14 +456,14 @@ class XGBoostExtremaSelector:
         # 筛选 maxima 信号 (预测值 > maxima 阈值 且 DI 值异常 → 卖出)
         maxima_signals = result_df.filter(
             (pl.col("&s-extrema") > pl.col("&s-maxima_sort_threshold")) 
-        ).select(["datetime", "vt_symbol", "&s-extrema","DI_values","DI_cutoff"])
+        ).select(["datetime", "vt_symbol", "&s-extrema","DI_values","DI_cutoff","&s-minima_sort_threshold","&s-maxima_sort_threshold"])
         maxima_signals = maxima_signals.with_columns(pl.lit(-1).alias("signal"))
         logger.info(f"Maxima 信号数量：{len(maxima_signals)}")
 
         # 筛选 minima 信号 (预测值 < minima 阈值 且 DI 值异常 → 买入)
         minima_signals = result_df.filter(
             (pl.col("&s-extrema") < pl.col("&s-minima_sort_threshold")) 
-        ).select(["datetime", "vt_symbol", "&s-extrema","DI_values","DI_cutoff"])
+        ).select(["datetime", "vt_symbol", "&s-extrema","DI_values","DI_cutoff","&s-minima_sort_threshold","&s-maxima_sort_threshold"])
         minima_signals = minima_signals.with_columns(pl.lit(1).alias("signal"))
         logger.info(f"Minima 信号数量：{len(minima_signals)}")
 
@@ -542,10 +547,19 @@ def main():
     # ========================================
     # 任务参数配置
     # ========================================
+    # 创建事件引擎和主引擎（AlphaLabV2需要）
+    from vnpy.event import EventEngine
+    from vnpy.trader.engine import MainEngine
+
+    event_engine = EventEngine()
+    main_engine = MainEngine(event_engine)
+
     # 创建数据中心 - AlphaLabV2（分层架构）
     # 参数：lab路径、项目名称、数据源、指数代码
     lab = AlphaLabV2(
-        str(LAB_PATH),
+        main_engine=main_engine,
+        event_engine=event_engine,
+        root_path=str(LAB_PATH),
         project_name="xgb_extrema",
         data_source="xt",
         index_code="csi300"  # 使用沪深300指数成分股

@@ -234,15 +234,22 @@ class RpcEngine(BaseEngine):
         """获取 AlphaLabV2Engine"""
         try:
             engine = self.main_engine.get_engine("AlphaLabV2")
+            self.write_log(f"[RpcEngine] Got lab engine: {engine}")
             return engine
-        except Exception:
+        except Exception as e:
+            self.write_log(f"[RpcEngine] Failed to get lab engine: {e}")
             return None
 
     def lab_get_kline(self, vt_symbol: str, period: str = "1d", days: int = 100) -> list:
         """获取K线数据"""
+        self.write_log(f"[RpcEngine] lab_get_kline called: {vt_symbol}, period={period}, days={days}")
         engine = self.get_lab_engine()
         if engine:
-            return engine.get_kline(vt_symbol, period, days)
+            self.write_log(f"[RpcEngine] Lab engine found: {engine.engine_name}, root={engine.root}")
+            result = engine.get_kline(vt_symbol, period, days)
+            self.write_log(f"[RpcEngine] get_kline returned {len(result)} bars")
+            return result
+        self.write_log("[RpcEngine] Lab engine NOT found!")
         return []
 
     def lab_get_components(self, start: str = None, end: str = None) -> list:
@@ -321,7 +328,7 @@ class RpcEngine(BaseEngine):
                 for key, value in record.items():
                     if hasattr(value, 'strftime'):  # datetime object
                         record[key] = value.strftime('%Y-%m-%d %H:%M:%S')
-            return {"data": records}
+            return records
         return {"error": "Lab engine not available"}
 
     def lab_remove_signal(self, name: str) -> dict:
