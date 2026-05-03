@@ -93,11 +93,9 @@ class StockaiDataKitchen:
         interval = self.config.get("interval", "d")
         if hasattr(self.lab, 'interval'):
             interval = self.lab.interval
-        elif hasattr(self.lab, 'config') and isinstance(self.lab.config, dict):
-            interval = self.lab.config.get("interval", interval)
 
         df = self.lab.load_bars_df(
-            symbols=[self.pair],
+            vt_symbols=[self.pair],
             interval=interval,
             start=train_start,
             end=end,
