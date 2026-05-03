@@ -434,7 +434,11 @@ class XGBoostExtremaSelector:
         self.train_models()
 
         # 4. 生成信号
-        self.generate_signals()
+        signal_df = self.generate_signals()
+        if signal_df is None:
+            logger.warning("信号生成返回 None，创建空 DataFrame")
+            signal_df = pl.DataFrame()
+        self.signal_df = signal_df
 
         # 5. 保存结果
         self.save_results()
@@ -525,8 +529,11 @@ def main():
     signal_df = selector.run()
 
     # 显示结果
-    logger.info("\n最终信号预览:")
-    logger.info(signal_df.head(10))
+    if signal_df is not None and len(signal_df) > 0:
+        logger.info("\n最终信号预览:")
+        logger.info(signal_df.head(10))
+    else:
+        logger.warning("\n没有生成信号")
 
 
 if __name__ == "__main__":
