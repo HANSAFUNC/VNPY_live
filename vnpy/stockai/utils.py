@@ -43,3 +43,26 @@ def load_parquet(path: Path) -> Optional[pl.DataFrame]:
     if not path.exists():
         return None
     return pl.read_parquet(path)
+
+
+def query_by_time(
+    df: pl.DataFrame,
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+) -> pl.DataFrame:
+    """
+    根据时间范围过滤DataFrame
+
+    参数:
+        df: 输入DataFrame（必须包含datetime列）
+        start: 开始时间（可选）
+        end: 结束时间（可选）
+
+    返回:
+        过滤后的DataFrame
+    """
+    if start:
+        df = df.filter(pl.col("datetime") >= start)
+    if end:
+        df = df.filter(pl.col("datetime") <= end)
+    return df.sort("datetime")
