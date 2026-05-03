@@ -1,26 +1,25 @@
 """
-XGBoost 极值选股器
+XGBoost 极值选股器 (StockAI 版本)
 
-使用 QuickAdapterV5Dataset 和 XGBoostExtremaModel 进行股票极值预测选股
+使用 QuickAdapterV5Dataset 进行特征工程，使用 StockAI 架构进行训练和预测
 """
 import warnings
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import Optional
+
 import polars as pl
 import numpy as np
-from datetime import datetime, timedelta
-from typing import Optional
-from pathlib import Path
 
 from vnpy.trader.constant import Interval
 from vnpy.alpha.lab_v2 import AlphaLabV2Engine as AlphaLabV2
-from vnpy.alpha import Segment
 from vnpy.alpha.dataset.datasets.quick_adapter_v5 import QuickAdapterV5Dataset
-from vnpy.alpha.model.models.xgb_extrema_model import XGBoostExtremaModel
-from vnpy.alpha.model.models.grouped_multi_model import GroupedMultiModel
-from vnpy.trader.database import DB_TZ
+from vnpy.stockai.prediction_models.xgb_extrema_model import XGBoostExtremaModel
+from vnpy.stockai.data_drawer import StockaiDataDrawer
 from vnpy.alpha.logger import logger
 
 
@@ -34,12 +33,12 @@ class SelectorConfig:
     """选股器配置"""
     # 数据参数
     top_n: int = 300                    # 选股数量（沪深300最多300只）
-    train_period_days: int = 100        # 训练期天数（从 start 往前推）
+    train_period_days: int = 300        # 训练期天数（从 start 往前推）
     extended_days: int = 100            # 额外缓冲天数
     interval: Interval = Interval.DAILY # K线周期
 
     # DI（Dissimilarity Index）参数
-    di_threshold: float = 5.0           # DI阈值，0表示禁用（避免内存溢出）
+    di_threshold: float = 0.0           # DI阈值，0表示禁用（避免内存溢出）
 
     # XGBoost参数
     learning_rate: float = 0.05
@@ -53,12 +52,19 @@ class SelectorConfig:
     # 批次处理参数
     data_batch_size: int = 50             # 数据加载批次大小
 
+    # StockAI 参数
+    num_candles: int = 200                # 用于阈值计算的K线数量
+    label_period_candles: int = 10        # 标签周期
+    test_size: float = 0.2                # 测试集比例
+    shuffle: bool = False                 # 是否打乱数据
+
 
 # 默认配置
 DEFAULT_CONFIG = SelectorConfig()
 
+
 class XGBoostExtremaSelector:
-    """XGBoost 极值选股器"""
+    """XGBoost 极值选股器 (StockAI 版本)"""
 
     def __init__(
         self,
@@ -67,6 +73,7 @@ class XGBoostExtremaSelector:
         start: str,
         end: str,
         config: SelectorConfig = None,
+        stockai_path: Optional[Path] = None,
     ):
         """
         初始化选股器
@@ -77,6 +84,7 @@ class XGBoostExtremaSelector:
             start: 开始日期
             end: 结束日期
             config: 选股器配置（使用默认配置如果为 None）
+            stockai_path: StockAI 数据存储路径
         """
         self.lab = lab
         self.name = name
@@ -92,10 +100,41 @@ class XGBoostExtremaSelector:
         self.top_n = self.config.top_n
         self.train_period_days = self.config.train_period_days
 
+        # 数据集和结果
         self.dataset: Optional[QuickAdapterV5Dataset] = None
-        self.multi_model: Optional[GroupedMultiModel] = None
         self.result_df: Optional[pl.DataFrame] = None
         self.signal_df: Optional[pl.DataFrame] = None
+
+        # 成分股列表
+        self.component_symbols: list[str] = []
+
+        # StockAI 配置
+        self.stockai_path = stockai_path or (LAB_PATH / "stockai_data" / name)
+        self.stockai_config = self._build_stockai_config()
+
+        # 模型字典 {pair: XGBoostExtremaModel}
+        self.models: dict[str, XGBoostExtremaModel] = {}
+
+    def _build_stockai_config(self) -> dict:
+        """构建 StockAI 配置"""
+        return {
+            "path": str(self.stockai_path),
+            "feature_parameters": {
+                "num_candles": self.config.num_candles,
+                "label_period_candles": self.config.label_period_candles,
+            },
+            "model_training_parameters": {
+                "learning_rate": self.config.learning_rate,
+                "max_depth": self.config.max_depth,
+                "n_estimators": self.config.n_estimators,
+                "early_stopping_rounds": self.config.early_stopping_rounds,
+            },
+            "data_split_parameters": {
+                "test_size": self.config.test_size,
+                "shuffle": self.config.shuffle,
+            },
+            "train_period_days": self.train_period_days,
+        }
 
     def load_data_batch(self, symbols: list[str], data_start: str, data_end: str) -> Optional[pl.DataFrame]:
         """分批加载数据，避免内存溢出"""
@@ -127,220 +166,62 @@ class XGBoostExtremaSelector:
         logger.info("1. 加载数据")
         logger.info("=" * 60)
 
-        # 加载成分股代码（从索引层）
-        # 使用实例默认的 index_code，也可指定其他指数
+        # 加载成分股代码
         logger.info(f"Lab root路径: {self.lab.root}")
         logger.info(f"IndexManager索引路径: {self.lab.index_manager.index_path}")
         logger.info(f"IndexManager index_code: {self.lab.index_code}")
 
-        # 检查索引目录是否存在
+        # 检查索引目录
         index_dir = self.lab.index_manager.index_path / self.lab.index_code
         logger.info(f"指数目录: {index_dir}")
-        logger.info(f"指数目录是否存在: {index_dir.exists()}")
         if index_dir.exists():
             files = list(index_dir.iterdir())
             logger.info(f"指数目录内容: {[f.name for f in files]}")
 
-        component_symbols = self.lab.get_component_symbols(
+        self.component_symbols = self.lab.get_component_symbols(
             start=self.start,
             end=self.end
         )
         logger.info(f"指数代码：{self.lab.index_code}")
         logger.info(f"日期范围：{self.start} ~ {self.end}")
-        logger.info(f"成分股数量：{len(component_symbols)}")
+        logger.info(f"成分股数量：{len(self.component_symbols)}")
 
-        if not component_symbols:
-            logger.error(f"错误：未找到指数 {self.lab.index_code} 的成分股数据")
-            logger.error(f"请确保已运行 download_data.py 下载数据")
-            logger.error(f"数据目录：{LAB_PATH}")
+        if not self.component_symbols:
             raise ValueError(f"未找到指数 {self.lab.index_code} 的成分股数据")
 
         # 只取前 top_n 只股票
-        top_symbols = component_symbols[:self.top_n]
+        top_symbols = self.component_symbols[:self.top_n]
         logger.info(f"选股范围：前{len(top_symbols)}只成分股")
 
-        # 计算需要的数据范围
-        # 从 start 往前推：train_period_days + extended_days
+        # 计算数据范围
         start_dt = datetime.strptime(self.start, "%Y-%m-%d")
-        end_dt = datetime.strptime(self.end, "%Y-%m-%d")
-
-        # 训练期 + 缓冲期从 start 往前推
         train_buffer_days = self.train_period_days + self.extended_days
         data_start_dt = start_dt - timedelta(days=train_buffer_days)
         data_start_str = data_start_dt.strftime("%Y-%m-%d")
 
-        # 总数据范围 = 训练期 + 缓冲期 + 测试期
-        total_days = (end_dt - data_start_dt).days
-
-        logger.info(f"数据范围：{data_start_str} ~ {self.end} (共{total_days}天)")
-        logger.info(f"  - 测试期：{(end_dt - start_dt).days}天 ({self.start} ~ {self.end})")
-        logger.info(f"  - 训练期 + 验证期：{self.train_period_days}天 (从{self.start}往前推)")
+        logger.info(f"数据范围：{data_start_str} ~ {self.end}")
+        logger.info(f"  - 测试期：{self.start} ~ {self.end}")
+        logger.info(f"  - 训练期：从{self.start}往前推{self.train_period_days}天")
         logger.info(f"  - 缓冲期：{self.extended_days}天")
 
-        # 加载成分股数据（从计算的开始时间到 end）
-        # 使用分批加载避免内存溢出
+        # 分批加载数据
         logger.info(f"开始分批加载数据（批次大小: {self.config.data_batch_size}）...")
         df = self.load_data_batch(top_symbols, data_start_str, self.end)
 
-        # 检查数据是否足够，不足时尝试下载
         if df is None:
             df = pl.DataFrame()
-        df = self._ensure_sufficient_data(df, top_symbols, data_start_str, total_days)
 
         logger.info(f"数据形状：{df.shape}")
-
-        return df
-
-    def _ensure_sufficient_data(
-        self,
-        df: pl.DataFrame,
-        symbols: list[str],
-        required_start: str,
-        needed_days: int
-    ) -> pl.DataFrame:
-        """
-        检查数据是否足够，不足时自动下载补充
-
-        Parameters
-        ----------
-        df : pl.DataFrame
-            已加载的数据
-        symbols : list[str]
-            股票代码列表
-        required_start : str
-            需要的开始日期
-        needed_days : int
-            需要的总天数
-        """
-        if len(df) == 0:
-            min_date = None
-            max_date = None
-            actual_days = 0
-        else:
-            min_date = df["datetime"].min()
-            max_date = df["datetime"].max()
-            actual_days = (max_date - min_date).days
-
-        logger.info(f"实际数据范围：{min_date} ~ {max_date} (共{actual_days}天)")
-        logger.info(f"需要数据范围：{required_start} ~ {self.end} (共{needed_days}天)")
-
-        # 检查数据是否满足要求
-        required_start_dt = datetime.strptime(required_start, "%Y-%m-%d")
-
-        # 允许 5 天的偏差（周末和节假日）
-        tolerance_days = 5
-        data_sufficient = (
-            len(df) > 0
-            and min_date <= required_start_dt + timedelta(days=tolerance_days)
-            and actual_days >= needed_days - tolerance_days
-        )
-
-        if data_sufficient:
-            logger.info(f"[OK] 数据充足（偏差在容忍范围内）")
-            return df
-
-        # 数据不足，尝试下载
-        missing_days = needed_days - actual_days
-        logger.info(f"\n数据不足：当前{actual_days}天，需要{needed_days}天 (缺{missing_days}天)")
-        logger.info("正在下载缺失数据...")
-
-        try:
-            # 使用迅投研下载数据
-            from tqdm import tqdm
-            from vnpy.trader.constant import Exchange
-            from vnpy.trader.object import HistoryRequest
-            from vnpy.trader.datafeed import get_datafeed
-
-            # 初始化数据服务
-            datafeed = get_datafeed()
-
-            # 准备下载列表（包括指数本身）
-            # 从 IndexManager 获取指数的 xt_code
-            index_info = self.lab.index_manager.get_index_info(self.lab.index_code)
-            index_xt_code = index_info.get("xt_code") if index_info else None
-            if index_xt_code:
-                # 转换迅投代码格式 000300.SH -> 000300.SSE
-                index_vt_symbol = index_xt_code.replace(".SH", ".SSE").replace(".SZ", ".SZSE")
-                task_symbols = list(set(symbols + [index_vt_symbol]))
-            else:
-                task_symbols = symbols
-
-            # 轮询下载
-            start_dt = datetime.strptime(required_start, "%Y-%m-%d")
-            end_dt = datetime.strptime(self.end, "%Y-%m-%d")
-            start_dt = start_dt.replace(tzinfo=DB_TZ)
-            end_dt = end_dt.replace(tzinfo=DB_TZ)
-
-            for vt_symbol in tqdm(task_symbols, desc="下载数据"):
-                try:
-                    symbol, exchange_str = vt_symbol.split(".")
-                    req = HistoryRequest(
-                        symbol=symbol,
-                        exchange=Exchange(exchange_str),
-                        start=start_dt,
-                        end=end_dt,
-                        interval=self.interval
-                    )
-                    bars = datafeed.query_bar_history(req)
-                    if bars:
-                        self.lab.save_bar_data(bars)
-                    else:
-                        logger.warning(f"警告：{vt_symbol} 下载失败")
-                except Exception as e:
-                    logger.error(f"下载 {vt_symbol} 失败：{e}")
-                    continue
-
-            logger.info("[OK] 下载完成，重新加载数据...")
-
-            # 重新加载数据
-            df = self.lab.load_bar_df(
-                start=required_start,
-                end=self.end,
-                interval=self.interval,
-                extended_days=0
-            )
-
-            # 再次检查
-            if len(df) > 0:
-                min_date = df["datetime"].min()
-                max_date = df["datetime"].max()
-                actual_days = (max_date - min_date).days
-                logger.info(f"[OK] 数据已更新：{actual_days}天")
-            else:
-                logger.warning("警告：重新加载后数据仍为空")
-
-        except ImportError as e:
-            logger.warning(f"缺少依赖：{e}")
-            logger.info("请安装：pip install tqdm xtquant")
-        except Exception as e:
-            logger.warning(f"下载失败：{e}")
-            logger.info("请手动运行 download_data_xt.ipynb 下载数据")
-
         return df
 
     def create_dataset(self, df: pl.DataFrame) -> QuickAdapterV5Dataset:
-        """创建数据集"""
+        """创建数据集（用于特征工程）"""
         logger.info("\n" + "=" * 60)
         logger.info("2. 创建数据集")
         logger.info("=" * 60)
 
-        # 计算数据的实际日期范围
-        min_date = df["datetime"].min()
-        max_date = df["datetime"].max()
-        actual_days = (max_date - min_date).days
-
-        logger.info(f"数据日期范围：{min_date} ~ {max_date} (共{actual_days}天)")
-        logger.info(f"需要训练期天数：{self.train_period_days}天")
-
-        # 按 train_period_days 划分训练/验证周期
-        # 训练期 + 验证期：end 往前推 train_period_days 天
-        # 训练期：80%
-        # 验证期：20%
-        # 测试期：用户传入的 start 到 end
-        end_dt = datetime.strptime(self.end, "%Y-%m-%d")
+        # 计算日期范围
         start_dt = datetime.strptime(self.start, "%Y-%m-%d")
-
-        # 训练期 + 验证期从 start 往前推
         train_buffer_days = self.train_period_days + self.extended_days
         train_start_dt = start_dt - timedelta(days=train_buffer_days)
         train_start_str = train_start_dt.strftime("%Y-%m-%d")
@@ -368,12 +249,11 @@ class XGBoostExtremaSelector:
             valid_period=valid_period,
             test_period=test_period,
             periods=[10, 20, 30, 40],
-            label_period_candles=10,
+            label_period_candles=self.config.label_period_candles,
             include_shifted_candles=[1, 2, 3],
         )
 
-        # 加载指数成分过滤器（使用训练期开始时间，以覆盖完整数据范围）
-        # AlphaLabV2: load_component_filters index_code 可选，默认使用实例的 index_code
+        # 加载指数成分过滤器
         filters = self.lab.get_component_filters(
             start=train_start_str,
             end=self.end
@@ -386,75 +266,104 @@ class XGBoostExtremaSelector:
         # 数据预处理
         dataset.process_data()
 
-        logger.info(f"处理后特征数量：{len([c for c in dataset.learn_df.columns if c.startswith('%-')])}")
+        feature_cols = [c for c in dataset.learn_df.columns if c.startswith('%-')]
+        logger.info(f"处理后特征数量：{len(feature_cols)}")
 
         self.dataset = dataset
         return dataset
 
-    def train_model(self) -> GroupedMultiModel:
-        """训练多模型（每只股票一个模型）"""
+    def train_models(self) -> dict[str, XGBoostExtremaModel]:
+        """训练模型（每只股票一个模型）"""
         logger.info("\n" + "=" * 60)
-        logger.info("3. 训练模型")
+        logger.info("3. 训练模型 (StockAI)")
         logger.info("=" * 60)
 
-        multi_model = GroupedMultiModel(
-            model_factory=lambda: XGBoostExtremaModel(
-                learning_rate=self.config.learning_rate,
-                max_depth=self.config.max_depth,
-                n_estimators=self.config.n_estimators,
-                early_stopping_rounds=self.config.early_stopping_rounds,
-                num_candles=200,
-                label_period_candles=10,
-                scale_label=False,  # 对标签进行缩放（像 freqtrade 一样）
-            ),
-            group_by="vt_symbol",
-            min_samples_per_group=100,
-        )
+        models = {}
+        learn_df = self.dataset.learn_df
 
-        logger.info("开始训练多模型...")
-        multi_model.fit(self.dataset)
+        # 按股票分组训练
+        unique_symbols = learn_df["vt_symbol"].unique().to_list()
+        total = len(unique_symbols)
 
-        # 查看模型信息
-        info = multi_model.detail()
-        logger.info(f"\n多模型信息:")
-        logger.info(f"  类型：{info['type']}")
-        logger.info(f"  分组字段：{info['group_by']}")
-        logger.info(f"  训练模型数：{info['num_groups']}")
-        logger.info(f"  是否有全局模型：{info['has_global_model']}")
-        logger.info(f"  前 10 个分组：{info['groups'][:10]}")
+        logger.info(f"需要训练 {total} 个模型")
 
-        self.multi_model = multi_model
-        return multi_model
+        for i, symbol in enumerate(unique_symbols, 1):
+            logger.info(f"\n[{i}/{total}] 训练模型: {symbol}")
+
+            # 创建模型实例
+            model = XGBoostExtremaModel(self.stockai_config, self.lab)
+
+            try:
+                # 使用 StockAI 的高层训练接口
+                model.start_training(
+                    pair=symbol,
+                    start=self.start,
+                    end=self.end,
+                )
+                models[symbol] = model
+                logger.info(f"  [OK] 训练完成: {symbol}")
+            except Exception as e:
+                logger.error(f"  [FAIL] 训练失败: {symbol} - {e}")
+                continue
+
+        self.models = models
+
+        # 显示统计信息
+        trained_count = len(models)
+        logger.info(f"\n训练完成: {trained_count}/{total} 个模型")
+
+        return models
 
     def generate_signals(self) -> pl.DataFrame:
         """生成交易信号"""
         logger.info("\n" + "=" * 60)
-        logger.info("4. 生成信号")
+        logger.info("4. 生成信号 (StockAI)")
         logger.info("=" * 60)
 
-        # 运行预测
-        self.multi_model.predict(self.dataset, Segment.TEST)
+        all_predictions = []
+        test_df = self.dataset.get_segment_data("test")
 
-        # 获取结果 DataFrame
-        result_df = self.multi_model.get_results_df()
+        # 按股票预测
+        for symbol, model in self.models.items():
+            logger.info(f"预测: {symbol}")
 
+            try:
+                # 使用 StockAI 的高层预测接口
+                predictions = model.start_prediction(
+                    pair=symbol,
+                    start=self.start,
+                    end=self.end,
+                )
+
+                # 添加股票代码列
+                predictions = predictions.with_columns([
+                    pl.col("pair").alias("vt_symbol"),
+                ])
+
+                all_predictions.append(predictions)
+
+            except Exception as e:
+                logger.error(f"预测失败: {symbol} - {e}")
+                continue
+
+        if not all_predictions:
+            logger.warning("没有预测结果")
+            return pl.DataFrame()
+
+        # 合并所有预测
+        result_df = pl.concat(all_predictions).sort(["datetime", "vt_symbol"])
         self.result_df = result_df
+
         logger.info(f"结果形状：{result_df.shape}")
-        logger.info(f"结果列：{result_df.columns}")
 
-   
-        # 检查 result_df 中的预测值范围
-        if "&s-extrema" in result_df.columns:
-            logger.info(f"预测值范围：[{result_df['&s-extrema'].min():.6f}, {result_df['&s-extrema'].max():.6f}]")
-
-        # 仅使用阈值筛选信号
-        logger.info("使用阈值筛选信号")
+        # 生成信号（基于阈值）
         maxima_signals = result_df.filter(
-            pl.col("&s-extrema") > pl.col("&s-maxima_sort_threshold")
-        ).select(["datetime", "vt_symbol", "&s-extrema","DI_values","DI_cutoff","&s-minima_sort_threshold","&s-maxima_sort_threshold"])
+            pl.col("prediction") > pl.col("maxima_threshold")
+        ).select(["datetime", "vt_symbol", "prediction"])
+
         minima_signals = result_df.filter(
-            pl.col("&s-extrema") < pl.col("&s-minima_sort_threshold")
-        ).select(["datetime", "vt_symbol", "&s-extrema","DI_values","DI_cutoff","&s-minima_sort_threshold","&s-maxima_sort_threshold"])
+            pl.col("prediction") < pl.col("minima_threshold")
+        ).select(["datetime", "vt_symbol", "prediction"])
 
         # 添加信号列
         maxima_signals = maxima_signals.with_columns(pl.lit(-1).alias("signal"))
@@ -481,43 +390,49 @@ class XGBoostExtremaSelector:
         logger.info("5. 保存结果")
         logger.info("=" * 60)
 
-        # 保存模型
-        self.lab.save_model(f"{self.name}_multi", self.multi_model)
-        logger.info(f"模型已保存：{self.name}_multi")
+        # StockAI 模型已通过 DataDrawer 自动保存
+        logger.info(f"模型已保存到: {self.stockai_path}")
+
+        # 获取 DataDrawer 保存的元数据
+        if self.models:
+            first_model = list(self.models.values())[0]
+            drawer = first_model.dd
+            logger.info(f"已训练模型数: {len(drawer.pair_dict)}")
 
         # 添加元数据到信号 DataFrame
-        signal_with_meta = self.signal_df.with_columns([
-            pl.lit(self.name).alias("model_name"),
-            pl.lit(self.start).alias("start_date"),
-            pl.lit(self.end).alias("end_date"),
-            pl.lit(self.lab.index_code).alias("index_code"),
-            pl.lit(self.config.di_threshold).alias("di_threshold"),
-            pl.lit(len(self.multi_model.models_) if self.multi_model else 0).alias("num_models"),
-        ])
+        if self.signal_df is not None and len(self.signal_df) > 0:
+            signal_with_meta = self.signal_df.with_columns([
+                pl.lit(self.name).alias("model_name"),
+                pl.lit(self.start).alias("start_date"),
+                pl.lit(self.end).alias("end_date"),
+                pl.lit(self.lab.index_code).alias("index_code"),
+                pl.lit(self.config.di_threshold).alias("di_threshold"),
+                pl.lit(len(self.models)).alias("num_models"),
+            ])
 
-        # 保存信号
-        self.lab.save_signal(self.name, signal_with_meta)
-        logger.info(f"信号已保存：{self.name}")
-        logger.info(f"  - 模型名称: {self.name}")
-        logger.info(f"  - 日期范围: {self.start} ~ {self.end}")
-        logger.info(f"  - 指数代码: {self.lab.index_code}")
-        logger.info(f"  - DI阈值: {self.config.di_threshold}")
-        logger.info(f"  - 训练模型数: {len(self.multi_model.models_) if self.multi_model else 0}")
+            # 保存信号
+            self.lab.save_signal(self.name, signal_with_meta)
+            logger.info(f"信号已保存：{self.name}")
+            logger.info(f"  - 模型名称: {self.name}")
+            logger.info(f"  - 日期范围: {self.start} ~ {self.end}")
+            logger.info(f"  - 指数代码: {self.lab.index_code}")
+            logger.info(f"  - DI阈值: {self.config.di_threshold}")
+            logger.info(f"  - 训练模型数: {len(self.models)}")
 
     def run(self) -> pl.DataFrame:
         """运行完整选股流程"""
         logger.info("\n" + "#" * 60)
-        logger.info(f"# XGBoost 极值选股器 - {self.name}")
+        logger.info(f"# XGBoost 极值选股器 (StockAI) - {self.name}")
         logger.info("#" * 60)
 
         # 1. 加载数据
         df = self.load_data()
 
-        # 2. 创建数据集
+        # 2. 创建数据集（特征工程）
         self.create_dataset(df)
 
         # 3. 训练模型
-        self.train_model()
+        self.train_models()
 
         # 4. 生成信号
         self.generate_signals()
@@ -555,45 +470,47 @@ def main():
     # ========================================
     # 任务参数配置
     # ========================================
-    # 创建事件引擎和主引擎（AlphaLabV2需要）
     from vnpy.event import EventEngine
     from vnpy.trader.engine import MainEngine
 
     event_engine = EventEngine()
     main_engine = MainEngine(event_engine)
 
-    # 创建数据中心 - AlphaLabV2（分层架构）
-    # 参数：lab路径、项目名称、数据源、指数代码
+    # 创建数据中心
     lab = AlphaLabV2(
         main_engine=main_engine,
         event_engine=event_engine,
         root_path=str(LAB_PATH),
         project_name="xgb_extrema",
         data_source="xt",
-        index_code="csi300"  # 使用沪深300指数成分股
+        index_code="csi300"
     )
 
     # 任务名称
-    name = "300_xgb_extrema"
+    name = "300_xgb_extrema_stockai"
 
-    # 测试期（需要预测的日期范围）
+    # 测试期
     start = "2026-04-14"
     end = "2026-04-15"
 
     # ========================================
-    # 选股器参数配置（使用 SelectorConfig）
+    # 选股器参数配置
     # ========================================
     config = SelectorConfig(
-        top_n=100,              # 选股数量（沪深300最多300只）
-        train_period_days=300,  # 训练期天数（从 start 往前推）
-        extended_days=100,      # 额外缓冲天数
-        di_threshold=0,         # DI阈值（0表示禁用，避免内存溢出）
-        learning_rate=0.05,     # XGBoost学习率
-        max_depth=6,            # XGBoost树深度
-        n_estimators=100,       # XGBoost树数量
-        early_stopping_rounds=50,  # 早停轮数
-        min_volume_percentile=0.2, # 成交量过滤阈值（剔除最低的20%）
-        data_batch_size=50,     # 数据加载批次大小
+        top_n=100,
+        train_period_days=300,
+        extended_days=100,
+        di_threshold=0,
+        learning_rate=0.05,
+        max_depth=6,
+        n_estimators=100,
+        early_stopping_rounds=50,
+        min_volume_percentile=0.2,
+        data_batch_size=50,
+        num_candles=200,
+        label_period_candles=10,
+        test_size=0.2,
+        shuffle=False,
     )
 
     selector = XGBoostExtremaSelector(
@@ -601,7 +518,8 @@ def main():
         name=name,
         start=start,
         end=end,
-        config=config,          # 传入配置对象
+        config=config,
+        stockai_path=LAB_PATH / "stockai_data" / name,
     )
 
     # 运行选股
