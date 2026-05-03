@@ -9,6 +9,8 @@ import numpy as np
 import polars as pl
 from sklearn.model_selection import train_test_split
 
+from vnpy.trader.constant import Interval
+
 logger = logging.getLogger(__name__)
 
 
@@ -93,6 +95,21 @@ class StockaiDataKitchen:
         interval = self.config.get("interval", "d")
         if hasattr(self.lab, 'interval'):
             interval = self.lab.interval
+
+        # 确保 interval 是 Interval 枚举类型
+        if isinstance(interval, str):
+            interval_map = {
+                "d": Interval.DAILY,
+                "daily": Interval.DAILY,
+                "1m": Interval.MINUTE,
+                "minute": Interval.MINUTE,
+                "1h": Interval.HOUR,
+                "hour": Interval.HOUR,
+                "w": Interval.WEEKLY,
+                "weekly": Interval.WEEKLY,
+                "tick": Interval.TICK,
+            }
+            interval = interval_map.get(interval.lower(), Interval.DAILY)
 
         df = self.lab.load_bars_df(
             vt_symbols=[self.pair],
