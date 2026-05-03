@@ -35,7 +35,7 @@ SETTINGS["datafeed.username"] = "client"
 SETTINGS["datafeed.password"] = ""
 
 
-def download_data(start_date: str, end_date: str, lab_path: str = "./lab"):
+def download_data(start_date: str, end_date: str, lab_path: str = None):
     """
     下载数据到分层架构
 
@@ -46,8 +46,12 @@ def download_data(start_date: str, end_date: str, lab_path: str = "./lab"):
     end_date : str
         结束日期，格式 YYYYMMDD
     lab_path : str
-        lab根目录路径
+        lab根目录路径，默认为脚本所在目录的父目录下的lab
     """
+    # 默认路径为脚本所在目录的父目录下的lab
+    if lab_path is None:
+        lab_path = str(Path(__file__).parent / "lab")
+    lab_path = Path(lab_path).resolve()
     print("=" * 60)
     print("数据下载 - 分层架构")
     print("=" * 60)
@@ -211,26 +215,37 @@ def download_data(start_date: str, end_date: str, lab_path: str = "./lab"):
         info = index_manager.get_index_info(idx)
         print(f"  - {idx}: {info['name'] if info else 'N/A'}")
     print(f"\n使用示例:")
-    print(f'  from vnpy.alpha.lab_v2 import AlphaLabV2')
-    print(f'  lab = AlphaLabV2("{lab_path}", "my_strategy", "xt", "csi300")')
+    print(f'  from vnpy.alpha.lab_v2 import AlphaLabV2Engine')
+    print(f'  from vnpy.event import EventEngine')
+    print(f'  from vnpy.trader.engine import MainEngine')
+    print(f'  event_engine = EventEngine()')
+    print(f'  main_engine = MainEngine(event_engine)')
+    print(f'  lab = AlphaLabV2Engine(')
+    print(f'      main_engine=main_engine,')
+    print(f'      event_engine=event_engine,')
+    print(f'      root_path="{lab_path}",')
+    print(f'      project_name="my_strategy",')
+    print(f'      data_source="xt",')
+    print(f'      index_code="csi300"')
+    print(f'  )')
 
 
 def main():
     parser = argparse.ArgumentParser(description="下载迅投数据到新架构")
     parser.add_argument(
         "--start",
-        default="20240101",
+        default="20260415",
         help="开始日期 (YYYYMMDD)"
     )
     parser.add_argument(
         "--end",
-        default="20260415",
+        default="20260501",
         help="结束日期 (YYYYMMDD)"
     )
     parser.add_argument(
         "--lab-path",
-        default="./lab",
-        help="lab根目录路径"
+        default=None,
+        help="lab根目录路径 (默认: 脚本所在目录/lab)"
     )
 
     args = parser.parse_args()

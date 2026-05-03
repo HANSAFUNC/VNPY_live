@@ -16,7 +16,7 @@ from vnpy.trader.utility import round_to, extract_vt_symbol
 
 from ..logger import logger
 from ..lab import AlphaLab
-from ..lab_v2 import AlphaLabV2
+from ..lab_v2 import AlphaLabV2Engine
 from .template import AlphaStrategy
 
 
@@ -25,7 +25,7 @@ class BacktestingEngine:
 
     gateway_name: str = "BACKTESTING"
 
-    def __init__(self, lab: AlphaLab | AlphaLabV2) -> None:
+    def __init__(self, lab: "AlphaLab | AlphaLabV2Engine") -> None:
         """Constructor"""
         self.lab = lab
 

@@ -77,6 +77,11 @@ class RpcEngine(BaseEngine):
         self.server.register(self.lab_load_signal)
         self.server.register(self.lab_remove_signal)
 
+        # 注册实验室指数相关方法
+        self.server.register(self.lab_list_indices)
+        self.server.register(self.lab_get_index_info)
+        self.server.register(self.lab_switch_index)
+
     def get_kline(self, vt_symbol: str, period: str = "1d") -> list:
         """
         获取K线数据 - 优先从网关获取，失败则回退到本地文件
@@ -337,6 +342,27 @@ class RpcEngine(BaseEngine):
         if engine:
             result = engine.remove_signal(name)
             return {"success": result, "message": f"Signal {name} removed" if result else f"Signal {name} not found"}
+        return {"success": False, "message": "Lab engine not available"}
+
+    def lab_list_indices(self) -> list:
+        """列出所有指数"""
+        engine = self.get_lab_engine()
+        if engine:
+            return engine.list_indices()
+        return []
+
+    def lab_get_index_info(self, index_code: str = None) -> dict | None:
+        """获取指数信息"""
+        engine = self.get_lab_engine()
+        if engine:
+            return engine.get_index_info(index_code)
+        return None
+
+    def lab_switch_index(self, index_code: str) -> dict:
+        """切换当前指数"""
+        engine = self.get_lab_engine()
+        if engine:
+            return engine.switch_index(index_code)
         return {"success": False, "message": "Lab engine not available"}
 
     def load_setting(self) -> None:

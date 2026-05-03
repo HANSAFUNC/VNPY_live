@@ -28,9 +28,12 @@
                 style="width: 120px"
                 @change="handleIndexChange"
               >
-                <el-option label="沪深300" value="csi300" />
-                <el-option label="中证500" value="zz500" />
-                <el-option label="全A股" value="all_a" />
+                <el-option
+                  v-for="index in labStore.availableIndices"
+                  :key="index"
+                  :label="index"
+                  :value="index"
+                />
               </el-select>
               <el-select
                 v-model="labStore.currentDataSource"
@@ -243,19 +246,12 @@ function toggleSortByReturn() {
 // Generate day options based on maxAnalysisDays
 const dayOptions = computed(() => {
   const max = labStore.maxAnalysisDays;
+  // Generate all days from 1 to max
   const options = [];
-  // Common day intervals: 1, 3, 5, 10, 20, 30, 60
-  const commonDays = [1, 3, 5, 10, 20, 30, 60];
-  for (const day of commonDays) {
-    if (day <= max) {
-      options.push(day);
-    }
+  for (let day = 1; day <= max; day++) {
+    options.push(day);
   }
-  // Add max if not already in list
-  if (!options.includes(max)) {
-    options.push(max);
-  }
-  return options.sort((a, b) => a - b);
+  return options;
 });
 
 // watch tab change, auto select first signal in new tab

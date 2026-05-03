@@ -24,7 +24,7 @@ SETTINGS["datafeed.name"] = "xt"
 SETTINGS["datafeed.username"] = "client"
 SETTINGS["datafeed.password"] = ""
 
-from vnpy.alpha.lab_v2 import AlphaLabV2, AlphaLabV2Engine
+from vnpy.alpha.lab_v2 import AlphaLabV2Engine
 from vnpy.alpha.strategy import TradeEngine
 from vnpy.alpha.strategy.strategies.xgb_extrema_strategy import XGBExtremaStrategy
 from vnpy.trader.constant import Interval, Direction
@@ -396,7 +396,7 @@ def run_backtest_mode():
     from vnpy.alpha.strategy import BacktestingEngine
     from vnpy.alpha import Segment
 
-    lab = AlphaLabV2(
+    lab = AlphaLabV2Engine(
         str(LAB_PATH),
         project_name="xgb_extrema",
         data_source="xt",

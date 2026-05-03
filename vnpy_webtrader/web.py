@@ -299,6 +299,11 @@ class CreateProjectRequest(BaseModel):
     data_source: str = "xt"
 
 
+class SwitchIndexRequest(BaseModel):
+    """切换指数请求"""
+    index_code: str
+
+
 @app.post("/api/order")
 def send_order(model: OrderRequestModel, access: bool = Depends(get_access)) -> str:  # noqa: ARG001
     """委托下单"""
@@ -588,6 +593,51 @@ def delete_lab_signal(
         return Errors.rpc_error()
     except Exception as e:
         logger.error(f"删除信号失败: {e}")
+        return Errors.internal_error(str(e))
+
+
+@app.get("/api/lab/indices")
+def get_lab_indices(access: bool = Depends(get_access)) -> ApiResponse[list[str]]:
+    """获取所有指数列表"""
+    try:
+        if hasattr(rpc_client, 'lab_list_indices'):
+            data = rpc_client.lab_list_indices()
+            return success_response(data if data else [])
+        return Errors.rpc_error()
+    except Exception as e:
+        logger.error(f"获取指数列表失败: {e}")
+        return Errors.internal_error(str(e))
+
+
+@app.get("/api/lab/index/{index_code}")
+def get_lab_index_info(
+    index_code: str,
+    access: bool = Depends(get_access)
+) -> ApiResponse[dict | None]:
+    """获取指数信息"""
+    try:
+        if hasattr(rpc_client, 'lab_get_index_info'):
+            data = rpc_client.lab_get_index_info(index_code)
+            return success_response(data)
+        return Errors.rpc_error()
+    except Exception as e:
+        logger.error(f"获取指数信息失败: {e}")
+        return Errors.internal_error(str(e))
+
+
+@app.post("/api/lab/index/switch")
+def switch_lab_index(
+    request: SwitchIndexRequest,
+    access: bool = Depends(get_access)
+) -> ApiResponse[dict]:
+    """切换当前指数"""
+    try:
+        if hasattr(rpc_client, 'lab_switch_index'):
+            data = rpc_client.lab_switch_index(request.index_code)
+            return success_response(data)
+        return Errors.rpc_error()
+    except Exception as e:
+        logger.error(f"切换指数失败: {e}")
         return Errors.internal_error(str(e))
 
 

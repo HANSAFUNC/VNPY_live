@@ -104,11 +104,18 @@ def test_index_manager_get_component_filters(temp_lab_path):
 
 def test_lab_v2_initialization(temp_lab_path):
     """Test AlphaLabV2 initialization"""
-    from vnpy.alpha.lab_v2 import AlphaLabV2
+    from vnpy.alpha.lab_v2 import AlphaLabV2Engine
+    from vnpy.event import EventEngine
+    from vnpy.trader.engine import MainEngine
 
-    lab = AlphaLabV2(
-        str(temp_lab_path),
-        "test_project",
+    event_engine = EventEngine()
+    main_engine = MainEngine(event_engine)
+
+    lab = AlphaLabV2Engine(
+        main_engine=main_engine,
+        event_engine=event_engine,
+        root_path=str(temp_lab_path),
+        project_name="test_project",
         data_source="test",
         index_code="test_index"
     )
@@ -124,13 +131,20 @@ def test_lab_v2_initialization(temp_lab_path):
 
 def test_lab_v2_save_and_load_bar_data(temp_lab_path):
     """Test AlphaLabV2 save and load bar data"""
-    from vnpy.alpha.lab_v2 import AlphaLabV2
+    from vnpy.alpha.lab_v2 import AlphaLabV2Engine
+    from vnpy.event import EventEngine
+    from vnpy.trader.engine import MainEngine
     from vnpy.trader.constant import Interval, Exchange
     from vnpy.trader.object import BarData
 
-    lab = AlphaLabV2(
-        str(temp_lab_path),
-        "test_project",
+    event_engine = EventEngine()
+    main_engine = MainEngine(event_engine)
+
+    lab = AlphaLabV2Engine(
+        main_engine=main_engine,
+        event_engine=event_engine,
+        root_path=str(temp_lab_path),
+        project_name="test_project",
         data_source="test",
         index_code="test_index"
     )
@@ -167,27 +181,41 @@ def test_lab_v2_save_and_load_bar_data(temp_lab_path):
 
 def test_lab_v2_load_component_symbols(temp_lab_path):
     """Test AlphaLabV2 load component symbols"""
-    from vnpy.alpha.lab_v2 import AlphaLabV2
+    from vnpy.alpha.lab_v2 import AlphaLabV2Engine
+    from vnpy.event import EventEngine
+    from vnpy.trader.engine import MainEngine
 
-    lab = AlphaLabV2(
-        str(temp_lab_path),
-        "test_project",
+    event_engine = EventEngine()
+    main_engine = MainEngine(event_engine)
+
+    lab = AlphaLabV2Engine(
+        main_engine=main_engine,
+        event_engine=event_engine,
+        root_path=str(temp_lab_path),
+        project_name="test_project",
         data_source="test",
         index_code="test_index"
     )
 
-    symbols = lab.load_component_symbols("2024-01-01", "2024-01-03")
+    symbols = lab.get_component_symbols("2024-01-01", "2024-01-03")
     assert "600519.SSE" in symbols
 
 
 def test_lab_v2_save_and_load_signal(temp_lab_path):
     """Test AlphaLabV2 save and load signal"""
     import polars as pl
-    from vnpy.alpha.lab_v2 import AlphaLabV2
+    from vnpy.alpha.lab_v2 import AlphaLabV2Engine
+    from vnpy.event import EventEngine
+    from vnpy.trader.engine import MainEngine
 
-    lab = AlphaLabV2(
-        str(temp_lab_path),
-        "test_project",
+    event_engine = EventEngine()
+    main_engine = MainEngine(event_engine)
+
+    lab = AlphaLabV2Engine(
+        main_engine=main_engine,
+        event_engine=event_engine,
+        root_path=str(temp_lab_path),
+        project_name="test_project",
         data_source="test",
         index_code="test_index"
     )
@@ -208,11 +236,18 @@ def test_lab_v2_save_and_load_signal(temp_lab_path):
 
 def test_lab_v2_load_signal_not_exists(temp_lab_path):
     """Test AlphaLabV2 load non-existent signal"""
-    from vnpy.alpha.lab_v2 import AlphaLabV2
+    from vnpy.alpha.lab_v2 import AlphaLabV2Engine
+    from vnpy.event import EventEngine
+    from vnpy.trader.engine import MainEngine
 
-    lab = AlphaLabV2(
-        str(temp_lab_path),
-        "test_project",
+    event_engine = EventEngine()
+    main_engine = MainEngine(event_engine)
+
+    lab = AlphaLabV2Engine(
+        main_engine=main_engine,
+        event_engine=event_engine,
+        root_path=str(temp_lab_path),
+        project_name="test_project",
         data_source="test",
         index_code="test_index"
     )
@@ -221,17 +256,24 @@ def test_lab_v2_load_signal_not_exists(temp_lab_path):
     assert loaded is None
 
 
-def test_lab_v2_load_component_filters(temp_lab_path):
-    """Test AlphaLabV2 load component filters"""
-    from vnpy.alpha.lab_v2 import AlphaLabV2
+def test_lab_v2_get_component_filters(temp_lab_path):
+    """Test AlphaLabV2 get component filters"""
+    from vnpy.alpha.lab_v2 import AlphaLabV2Engine
+    from vnpy.event import EventEngine
+    from vnpy.trader.engine import MainEngine
 
-    lab = AlphaLabV2(
-        str(temp_lab_path),
-        "test_project",
+    event_engine = EventEngine()
+    main_engine = MainEngine(event_engine)
+
+    lab = AlphaLabV2Engine(
+        main_engine=main_engine,
+        event_engine=event_engine,
+        root_path=str(temp_lab_path),
+        project_name="test_project",
         data_source="test",
         index_code="test_index"
     )
 
-    filters = lab.load_component_filters("2024-01-01", "2024-01-03")
+    filters = lab.get_component_filters("2024-01-01", "2024-01-03")
     assert "600519.SSE" in filters
     assert len(filters["600519.SSE"]) > 0

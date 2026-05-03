@@ -109,7 +109,7 @@ class IndexManager:
             date_str = date
 
         # 使用 shelve 存储
-        db_path = index_dir / "components"
+        db_path = index_dir / index_code
         with shelve.open(str(db_path)) as db:
             db[date_str] = symbols
 
@@ -142,14 +142,18 @@ class IndexManager:
             end = datetime.strptime(end, "%Y-%m-%d")
 
         index_dir = self.index_path / index_code
-        db_path = index_dir / "components"
+        db_path = index_dir / index_code
 
-        if not db_path.exists():
+        # shelve on Windows creates .dat/.bak/.dir files, check for .dat
+        if not (db_path.parent / f"{db_path.name}.dat").exists():
             return {}
 
         result = {}
         with shelve.open(str(db_path)) as db:
             for key in db.keys():
+                # Handle both str and bytes keys (shelve may return bytes)
+                if isinstance(key, bytes):
+                    key = key.decode('utf-8')
                 dt = datetime.strptime(key, "%Y-%m-%d")
                 if start <= dt <= end:
                     result[dt] = db[key]

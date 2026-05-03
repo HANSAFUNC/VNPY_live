@@ -25,6 +25,11 @@ export interface Signal {
   max_drawdown?: number;
 }
 
+export interface IndexInfo {
+  name: string;
+  xt_code: string;
+}
+
 export const labApi = {
   // 获取项目列表
   getProjects(): Promise<string[]> {
@@ -42,6 +47,21 @@ export const labApi = {
       index_code,
       data_source,
     });
+  },
+
+  // 获取指数列表
+  getIndices(): Promise<string[]> {
+    return client.get('/lab/indices');
+  },
+
+  // 获取指数信息
+  getIndexInfo(index_code: string): Promise<IndexInfo | null> {
+    return client.get(`/lab/index/${index_code}`);
+  },
+
+  // 切换指数
+  switchIndex(index_code: string): Promise<{ success: boolean; message: string }> {
+    return client.post('/lab/index/switch', { index_code });
   },
 
   // 获取数据覆盖

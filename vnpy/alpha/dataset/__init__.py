@@ -1,4 +1,4 @@
-from .template import AlphaDataset
+from .template import AlphaDataset, query_by_time
 from .utility import Segment, to_datetime
 from .processor import (
     process_drop_na,
@@ -15,6 +15,7 @@ __all__ = [
     "AlphaDataset",
     "Segment",
     "to_datetime",
+    "query_by_time",
     "process_drop_na",
     "process_fill_na",
     "process_cs_norm",

@@ -63,25 +63,31 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
         self.data_source: str = data_source
         self.index_code: str = index_code
 
+        # 分层组件（必须先初始化，因为项目路径可能依赖数据层信息）
+        self.data_store: DataStore = DataStore(str(self.root), data_source)
+        self.index_manager: IndexManager = IndexManager(str(self.root))
+
         # 项目目录
         self.project_path: Path = self.root / "project" / project_name
-        self._ensure_project_dirs()
+      
 
+        # 项目子目录
+        self.dataset_path: Path = self.project_path / "dataset"
+        self.model_path: Path = self.project_path / "model"
+        self.signal_path: Path = self.project_path / "signal"
+
+        self._ensure_project_dirs()
         # 合约配置
         self.contract_file: Path = self.project_path / "contract.json"
         self._contracts: dict[str, dict] = {}
         self._load_contracts()
 
-        # 分层组件
-        self.data_store: DataStore = DataStore(str(self.root), data_source)
-        self.index_manager: IndexManager = IndexManager(str(self.root))
-
     def _ensure_project_dirs(self) -> None:
         """确保项目目录结构存在"""
         dirs = [
-            self.project_path / "dataset",
-            self.project_path / "model",
-            self.project_path / "signal",
+            self.dataset_path,
+            self.model_path,
+            self.signal_path,
         ]
         for d in dirs:
             d.mkdir(parents=True, exist_ok=True)
@@ -184,12 +190,29 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
 
     def get_component_symbols(
         self,
-        index_code: str,
-        start: Union[datetime, str],
-        end: Union[datetime, str]
+        start: Optional[Union[datetime, str]] = None,
+        end: Optional[Union[datetime, str]] = None
     ) -> list[str]:
-        """获取指数成分股列表"""
-        return self.index_manager.get_all_symbols(index_code, start, end)
+        """获取指数成分股列表（使用实例默认的 index_code）
+
+        Parameters
+        ----------
+        start : datetime or str, optional
+            开始日期，默认当前日期前30天
+        end : datetime or str, optional
+            结束日期，默认当前日期
+
+        Returns
+        -------
+        list[str]
+            成分股代码列表
+        """
+        if end is None:
+            end = datetime.now()
+        if start is None:
+            start = end - timedelta(days=30) if isinstance(end, datetime) else datetime.strptime(end, "%Y-%m-%d") - timedelta(days=30)
+
+        return self.index_manager.get_all_symbols(self.index_code, start, end)
 
     def load_contract_settings(self) -> dict[str, dict]:
         """加载所有合约配置"""
@@ -216,31 +239,12 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
         interval: Interval = Interval.DAILY,
         extended_days: int = 0
     ) -> Optional[pl.DataFrame]:
-        """加载指数成分股 K 线数据为 DataFrame (兼容旧接口)
-
-        Parameters
-        ----------
-        start : datetime or str
-            开始日期
-        end : datetime or str
-            结束日期
-        interval : Interval
-            K 线周期
-        extended_days : int
-            向前扩展的天数（用于计算指标）
-
-        Returns
-        -------
-        pl.DataFrame or None
-            包含 vt_symbol 列的 DataFrame
-        """
-        # 获取成分股列表
-        symbols = self.get_component_symbols(self.index_code, start, end)
+        """加载指数成分股 K 线数据为 DataFrame (使用实例的 index_code)"""
+        symbols = self.get_component_symbols(start=start, end=end)
         if not symbols:
             logger.warning(f"未找到指数 {self.index_code} 的成分股")
             return None
 
-        # 使用现有的 load_bars_df 方法
         return self.load_bars_df(symbols, interval, start, end, extended_days)
 
     def save_contract_setting(
@@ -282,7 +286,10 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
             if start_date is None:
                 start_date = end_date - timedelta(days=30)
 
-            symbols = self.get_component_symbols(self.index_code, start_date, end_date)
+            symbols = self.get_component_symbols(
+                start=start_date,
+                end=end_date
+            )
 
         return {
             "success": [],
@@ -362,6 +369,9 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
 
         # 更新项目目录
         self.project_path = self.root / "project" / project_name
+        self.dataset_path = self.project_path / "dataset"
+        self.model_path = self.project_path / "model"
+        self.signal_path = self.project_path / "signal"
         self._ensure_project_dirs()
 
         # 重新加载合约配置
@@ -468,14 +478,113 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
 
     # ==================== 额外工具方法 ====================
 
-    def get_component_filters(
+    def list_indices(self) -> list[str]:
+        """获取所有已配置的指数列表"""
+        return self.index_manager.list_indices()
+
+    def get_index_info(self, index_code: Optional[str] = None) -> Optional[dict]:
+        """获取指数配置信息
+
+        Parameters
+        ----------
+        index_code : str, optional
+            指数代码，如果不传返回当前实例的指数信息
+
+        Returns
+        -------
+        dict or None
+            指数配置信息，包含 name, xt_code 等
+        """
+        target = index_code if index_code else self.index_code
+        return self.index_manager.get_index_info(target)
+
+    def switch_index(self, index_code: str) -> dict[str, Any]:
+        """切换当前指数
+
+        Parameters
+        ----------
+        index_code : str
+            新的指数代码，如 "csi300", "zz500", "all_a"
+
+        Returns
+        -------
+        dict
+            切换结果信息
+        """
+        old_index = self.index_code
+
+        # 检查指数是否存在
+        available = self.list_indices()
+        if index_code not in available:
+            return {
+                "success": False,
+                "message": f"指数 {index_code} 不存在，可用指数: {available}"
+            }
+
+        # 切换指数
+        self.index_code = index_code
+
+        # 触发事件
+        event_data = {
+            "old_index": old_index,
+            "new_index": index_code,
+        }
+        self.event_engine.put(Event(EVENT_PROJECT_SWITCHED, event_data))
+
+        logger.info(f"指数切换: {old_index} -> {index_code}")
+
+        return {
+            "success": True,
+            "old_index": old_index,
+            "new_index": index_code,
+            "message": f"成功切换到指数 {index_code}"
+        }
+
+    def create_index(
         self,
         index_code: str,
+        name: str,
+        xt_code: str
+    ) -> dict[str, Any]:
+        """创建新的指数配置
+
+        Parameters
+        ----------
+        index_code : str
+            指数代码，如 "csi300"
+        name : str
+            指数名称，如 "沪深300"
+        xt_code : str
+            迅投代码，如 "000300.SH"
+
+        Returns
+        -------
+        dict
+            创建结果信息
+        """
+        try:
+            self.index_manager.create_index(index_code, name, xt_code)
+            return {
+                "success": True,
+                "index_code": index_code,
+                "name": name,
+                "message": f"成功创建指数 {index_code}"
+            }
+        except Exception as e:
+            logger.error(f"创建指数失败: {e}")
+            return {
+                "success": False,
+                "index_code": index_code,
+                "message": f"创建指数失败: {e}"
+            }
+
+    def get_component_filters(
+        self,
         start: Union[datetime, str],
         end: Union[datetime, str]
     ) -> dict[str, list[tuple[datetime, datetime]]]:
-        """获取成分股的连续持有期（用于回测过滤）"""
-        return self.index_manager.get_component_filters(index_code, start, end)
+        """获取成分股的连续持有期（使用实例的 index_code）"""
+        return self.index_manager.get_component_filters(self.index_code, start, end)
 
     def save_components(
         self,
@@ -490,14 +599,14 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
 
     def save_signal(self, name: str, signal: pl.DataFrame) -> None:
         """保存信号到项目目录"""
-        file_path = self.project_path / "signal" / f"{name}.parquet"
+        file_path = self.signal_path / f"{name}.parquet"
         file_path.parent.mkdir(parents=True, exist_ok=True)
         signal.write_parquet(file_path)
         logger.info(f"信号已保存: {file_path}")
 
     def load_signal(self, name: str) -> Optional[pl.DataFrame]:
         """从项目目录加载信号"""
-        file_path = self.project_path / "signal" / f"{name}.parquet"
+        file_path = self.signal_path / f"{name}.parquet"
         if not file_path.exists():
             logger.error(f"信号文件不存在: {name}")
             return None
@@ -505,7 +614,7 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
 
     def remove_signal(self, name: str) -> bool:
         """删除信号文件"""
-        file_path = self.project_path / "signal" / f"{name}.parquet"
+        file_path = self.signal_path / f"{name}.parquet"
         if not file_path.exists():
             logger.error(f"信号文件不存在: {name}")
             return False
@@ -514,11 +623,42 @@ class AlphaLabV2Engine(BaseEngine, BaseAlphaLab):
 
     def list_all_signals(self) -> list[str]:
         """列出所有信号"""
-        signal_dir = self.project_path / "signal"
-        if not signal_dir.exists():
+        if not self.signal_path.exists():
             return []
-        return [f.stem for f in signal_dir.glob("*.parquet")]
+        return [f.stem for f in self.signal_path.glob("*.parquet")]
 
+    # ==================== 模型相关方法 ====================
 
-# 向后兼容别名
-AlphaLabV2 = AlphaLabV2Engine
+    def save_model(self, name: str, model) -> None:
+        """保存模型到项目目录"""
+        import pickle
+        file_path = self.model_path / f"{name}.pkl"
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(file_path, 'wb') as f:
+            pickle.dump(model, f)
+        logger.info(f"模型已保存: {file_path}")
+
+    def load_model(self, name: str) -> Any | None:
+        """从项目目录加载模型"""
+        import pickle
+        file_path = self.model_path / f"{name}.pkl"
+        if not file_path.exists():
+            logger.error(f"模型文件不存在: {name}")
+            return None
+        with open(file_path, 'rb') as f:
+            return pickle.load(f)
+
+    def remove_model(self, name: str) -> bool:
+        """删除模型文件"""
+        file_path = self.model_path / f"{name}.pkl"
+        if not file_path.exists():
+            logger.error(f"模型文件不存在: {name}")
+            return False
+        file_path.unlink()
+        return True
+
+    def list_all_models(self) -> list[str]:
+        """列出所有模型"""
+        if not self.model_path.exists():
+            return []
+        return [f.stem for f in self.model_path.glob("*.pkl")]

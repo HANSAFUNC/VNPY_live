@@ -16,7 +16,7 @@ export const useLabStore = defineStore('lab', () => {
   const projects = ref<string[]>([]);
 
   // Default options
-  const availableIndices = ['csi300', 'zz500', 'all_a'];
+  const availableIndices = ref<string[]>([]);
   const availableDataSources = ['xt', 'rq'];
 
   // ============ 数据覆盖 ============
@@ -134,18 +134,23 @@ export const useLabStore = defineStore('lab', () => {
 
     selectedSignal.value = signal;
     selectedStock.value = signal.vt_symbol;
-    // Load kline and calculate max days
+    // Load kline and calculate max days (based on kline count, not calendar days)
     try {
       const data = await labApi.getKline(signal.vt_symbol, period.value, 100);
       klineData.value = data;
-      // Calculate max days from signal date to last kline
+      // Calculate max days based on available klines after signal
       if (data.length > 0) {
         const signalDate = new Date(signal.datetime);
-        const lastKlineDate = new Date(data[data.length - 1].datetime);
-        // Calculate difference in days
-        const diffTime = lastKlineDate.getTime() - signalDate.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        maxAnalysisDays.value = Math.max(1, diffDays);
+        // Find signal position in kline data
+        const signalIndex = data.findIndex(
+          (k) => new Date(k.datetime).toDateString() === signalDate.toDateString()
+        );
+        if (signalIndex >= 0) {
+          // Max hold days = number of klines after signal (including signal day)
+          maxAnalysisDays.value = data.length - signalIndex;
+        } else {
+          maxAnalysisDays.value = data.length;
+        }
         // Adjust analysisDays if needed
         if (analysisDays.value > maxAnalysisDays.value) {
           analysisDays.value = maxAnalysisDays.value;
@@ -353,13 +358,30 @@ export const useLabStore = defineStore('lab', () => {
     }
   }
 
+  async function loadIndices() {
+    try {
+      availableIndices.value = await labApi.getIndices();
+    } catch (error) {
+      console.error('加载指数列表失败:', error);
+      availableIndices.value = [];
+    }
+  }
+
   async function switchIndex(indexCode: string) {
     if (indexCode === currentIndex.value) return;
-    currentIndex.value = indexCode;
-    localStorage.setItem(STORAGE_KEY_INDEX, indexCode);
-    // Reload with new index
-    if (currentProject.value) {
-      await switchProject(currentProject.value, indexCode, currentDataSource.value);
+    try {
+      const result = await labApi.switchIndex(indexCode);
+      if (result.success) {
+        currentIndex.value = indexCode;
+        localStorage.setItem(STORAGE_KEY_INDEX, indexCode);
+        // Reload coverage and signals with new index
+        await loadCoverage();
+        await loadSignals();
+      }
+      return result;
+    } catch (error) {
+      console.error('切换指数失败:', error);
+      throw error;
     }
   }
 
@@ -367,7 +389,7 @@ export const useLabStore = defineStore('lab', () => {
     if (dataSource === currentDataSource.value) return;
     currentDataSource.value = dataSource;
     localStorage.setItem(STORAGE_KEY_DATA_SOURCE, dataSource);
-    // Reload with new data source
+    // Reload with new data source - need to recreate project
     if (currentProject.value) {
       await switchProject(currentProject.value, currentIndex.value, dataSource);
     }
@@ -376,6 +398,8 @@ export const useLabStore = defineStore('lab', () => {
   async function init() {
     // Load project list first
     await loadProjects();
+    // Load available indices
+    await loadIndices();
 
     // Restore saved values from localStorage
     const savedProject = localStorage.getItem(STORAGE_KEY_PROJECT);
@@ -391,10 +415,10 @@ export const useLabStore = defineStore('lab', () => {
     }
 
     // Determine which index to use
-    if (savedIndex && availableIndices.includes(savedIndex)) {
+    if (savedIndex && availableIndices.value.includes(savedIndex)) {
       currentIndex.value = savedIndex;
-    } else {
-      currentIndex.value = availableIndices[0];
+    } else if (availableIndices.value.length > 0) {
+      currentIndex.value = availableIndices.value[0];
     }
 
     // Determine which data source to use
@@ -433,6 +457,7 @@ export const useLabStore = defineStore('lab', () => {
     maxAnalysisDays,
     analysisResult,
     loadProjects,
+    loadIndices,
     switchProject,
     switchIndex,
     switchDataSource,

@@ -44,8 +44,6 @@ class XGBoostExtremaModel(AlphaModel):
         # 动态阈值参数
         num_candles: int = 100,
         label_period_candles: int = 10,
-        # 特征管道（用于 inverse_transform）
-        feature_pipeline=None,
         # 是否对标签进行缩放（像 freqtrade 一样）
         scale_label: bool = True,
     ):
@@ -69,8 +67,6 @@ class XGBoostExtremaModel(AlphaModel):
             动态阈值计算的 K 线数量（用于 frequency 计算）
         label_period_candles : int
             标签周期的 K 线数（用于频率计算）
-        feature_pipeline : optional
-            FreqaiFeaturePipeline 实例，用于特征的 inverse_transform
         scale_label : bool
             是否对标签进行缩放（像 freqtrade 一样），默认 True
         """
@@ -88,9 +84,6 @@ class XGBoostExtremaModel(AlphaModel):
         # 动态阈值参数
         self.num_candles: int = num_candles
         self.label_period_candles: int = label_period_candles
-
-        # 特征管道（用于 inverse_transform）
-        self.feature_pipeline = feature_pipeline
 
         # 标签缩放器
         self.scale_label = scale_label
@@ -444,39 +437,6 @@ class XGBoostExtremaModel(AlphaModel):
             pl.Series(predictions).alias(self.PREDICTION_COL),
             pl.Series(di_values).alias("DI_values"),
         )
-
-        # 如果设置了 feature_pipeline，将特征转换回原始范围
-        if self.feature_pipeline is not None:
-            try:
-                logger.info(f"feature_pipeline 存在，检查逆转换条件...")
-                logger.info(f"feature_pipeline 类型: {type(self.feature_pipeline)}")
-                logger.info(f"feature_pipeline.feature_cols: {len(self.feature_pipeline.feature_cols) if self.feature_pipeline.feature_cols else 0}")
-                logger.info(f"_data_min 是否存在: {hasattr(self.feature_pipeline, '_data_min')}")
-                # 获取特征列（%-前缀的列）
-                feature_cols_in_df = [col for col in df.columns if col.startswith("%-")]
-                logger.info(f"df 中的特征列数量: {len(feature_cols_in_df)}")
-                if feature_cols_in_df:
-                    # 选择特征列
-                    features_df = df.select(["datetime", "vt_symbol"] + feature_cols_in_df)
-                    # 打印逆转换前的特征范围
-                    for col in feature_cols_in_df[:3]:
-                        logger.info(f"逆转换前 {col} 范围: [{df[col].min():.6f}, {df[col].max():.6f}]")
-                    # 逆转换特征
-                    features_original_df = self.feature_pipeline.inverse_transform_features(features_df)
-                    # 打印逆转换后的特征范围
-                    for col in feature_cols_in_df[:3]:
-                        logger.info(f"逆转换后 {col} 范围: [{features_original_df[col].min():.6f}, {features_original_df[col].max():.6f}]")
-                    # 合并到 result_df
-                    result_df = result_df.join(
-                        features_original_df.select(["datetime", "vt_symbol"] + feature_cols_in_df),
-                        on=["datetime", "vt_symbol"],
-                        how="left"
-                    )
-                    logger.info(f"特征已转换回原始范围，共 {len(feature_cols_in_df)} 个特征")
-            except Exception as e:
-                logger.warning(f"特征 inverse_transform 失败：{e}")
-                import traceback
-                logger.warning(traceback.format_exc())
 
         # 从当前预测数据计算动态阈值（包含 DI cutoff）
         maxima_threshold, minima_threshold, di_cutoff, di_params, di_mean, di_std = self._compute_dynamic_thresholds(result_df)
