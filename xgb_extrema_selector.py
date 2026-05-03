@@ -321,7 +321,6 @@ class XGBoostExtremaSelector:
         logger.info("=" * 60)
 
         all_predictions = []
-        test_df = self.dataset.get_segment_data("test")
 
         # 按股票预测
         for symbol, model in self.models.items():
