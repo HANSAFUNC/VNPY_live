@@ -119,6 +119,7 @@ class XGBoostExtremaSelector:
         """构建 StockAI 配置"""
         return {
             "path": str(self.stockai_path),
+            "interval": self.interval.value if hasattr(self.interval, 'value') else str(self.interval),
             "feature_parameters": {
                 "num_candles": self.config.num_candles,
                 "label_period_candles": self.config.label_period_candles,

@@ -89,9 +89,16 @@ class StockaiDataKitchen:
         self.test_period = (start, end)
 
         # 从 lab 加载数据
+        # 优先使用 config 中的 interval，否则尝试从 lab 获取
+        interval = self.config.get("interval", "d")
+        if hasattr(self.lab, 'interval'):
+            interval = self.lab.interval
+        elif hasattr(self.lab, 'config') and isinstance(self.lab.config, dict):
+            interval = self.lab.config.get("interval", interval)
+
         df = self.lab.load_bars_df(
             symbols=[self.pair],
-            interval=self.lab.config.get("interval", "d"),
+            interval=interval,
             start=train_start,
             end=end,
         )
