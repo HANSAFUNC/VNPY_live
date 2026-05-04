@@ -96,7 +96,11 @@ class IStockaiModel(ABC):
         if self.dd.should_retrain(pair):
             logger.info(f"{pair}: 开始训练新模型")
             self.model = self.train(df, pair, dk)
-            self.dd.save_model(pair, self.model, dk)
+            # 生成时间戳并保存模型
+            from .utils import get_timestamp
+            timestamp = get_timestamp()
+            dk.set_paths(pair, timestamp)
+            self.dd.save_model(pair, self.model, timestamp)
         else:
             logger.info(f"{pair}: 加载已有模型")
             self.model = self.dd.load_model(pair)
