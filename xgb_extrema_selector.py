@@ -295,16 +295,28 @@ class XGBoostExtremaSelector:
             model = XGBoostExtremaModel(self.stockai_config, self.lab)
 
             try:
-                # 使用 StockAI 的高层训练接口
-                model.start_training(
-                    pair=symbol,
-                    start=self.start,
-                    end=self.end,
-                )
+                # 从 learn_df 中提取该股票的数据（已包含特征）
+                symbol_df = learn_df.filter(pl.col("vt_symbol") == symbol)
+
+                if len(symbol_df) == 0:
+                    logger.warning(f"  [SKIP] 没有数据: {symbol}")
+                    continue
+
+                # 创建 DataKitchen 并直接使用准备好的特征数据
+                from vnpy.stockai.data_kitchen import StockaiDataKitchen
+
+                dk = StockaiDataKitchen(self.stockai_config, symbol, self.lab)
+                dk.full_df = symbol_df
+
+                # 直接训练（不重新加载数据）
+                model.train(symbol_df, symbol, dk)
+
                 models[symbol] = model
                 logger.info(f"  [OK] 训练完成: {symbol}")
             except Exception as e:
                 logger.error(f"  [FAIL] 训练失败: {symbol} - {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 continue
 
         self.models = models
@@ -322,18 +334,26 @@ class XGBoostExtremaSelector:
         logger.info("=" * 60)
 
         all_predictions = []
+        learn_df = self.dataset.learn_df
 
         # 按股票预测
         for symbol, model in self.models.items():
             logger.info(f"预测: {symbol}")
 
             try:
-                # 使用 StockAI 的高层预测接口
-                predictions = model.start_prediction(
-                    pair=symbol,
-                    start=self.start,
-                    end=self.end,
-                )
+                # 从 learn_df 中提取该股票的特征数据
+                symbol_df = learn_df.filter(pl.col("vt_symbol") == symbol)
+
+                if len(symbol_df) == 0:
+                    logger.warning(f"  [SKIP] 没有数据: {symbol}")
+                    continue
+
+                # 创建 DataKitchen
+                dk = StockaiDataKitchen(self.stockai_config, symbol, self.lab)
+                dk.full_df = symbol_df
+
+                # 直接预测（使用已准备好的特征数据）
+                predictions = model.predict(symbol_df, dk)
 
                 # 添加股票代码列
                 predictions = predictions.with_columns([
@@ -344,6 +364,8 @@ class XGBoostExtremaSelector:
 
             except Exception as e:
                 logger.error(f"预测失败: {symbol} - {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 continue
 
         if not all_predictions:
