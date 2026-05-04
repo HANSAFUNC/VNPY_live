@@ -106,10 +106,10 @@ class IStockaiModel(ABC):
             self.model = self.dd.load_model(pair)
 
         # 执行预测
-        predictions = self.predict(df, dk)
+        predictions_df, do_predict = self.predict(df, dk)
 
         # 合并预测结果到原始 df
-        result_df = self._attach_predictions(df, predictions, dk)
+        result_df = self._attach_predictions(df, predictions_df, dk)
 
         return result_df
 
@@ -164,10 +164,10 @@ class IStockaiModel(ABC):
         self.model = self.train(train_df, pair, dk)
 
         # 预测
-        predictions = self.predict(predict_df, dk)
+        predictions_df, do_predict = self.predict(predict_df, dk)
 
         # 合并结果
-        result_df = self._attach_predictions(predict_df, predictions, dk)
+        result_df = self._attach_predictions(predict_df, predictions_df, dk)
 
         return result_df
 
