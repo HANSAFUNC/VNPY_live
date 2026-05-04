@@ -136,11 +136,15 @@ class BaseRegressionModel(IStockaiModel):
         """
         pair = dk.pair
 
-        # 1. 确保已识别特征
+        # 1. 加载管道和特征列表 (必须先加载，确保使用正确的特征列表)
+        self._load_pipelines(pair, dk)
+        model = self.dd.load_model(pair)
+
+        # 2. 如果没有特征列表，从 df 识别
         if not dk.training_features_list:
             dk.find_features(df)
 
-        # 2. 过滤特征 (返回的 features_df 已经移除包含 NaN 的行)
+        # 3. 过滤特征
         features_df, _ = dk.filter_features(df)
 
         # 保存过滤后的 datetime (与 prediction 对齐)
@@ -149,10 +153,6 @@ class BaseRegressionModel(IStockaiModel):
         # 移除 datetime 列 (如果有) 以便模型预测
         feature_cols = [c for c in features_df.columns if c != "datetime"]
         features_df = features_df.select(feature_cols)
-
-        # 3. 加载管道和模型
-        self._load_pipelines(pair, dk)
-        model = self.dd.load_model(pair)
 
         # 4. 转换
         X = dk.feature_pipeline.transform(features_df.to_numpy())
