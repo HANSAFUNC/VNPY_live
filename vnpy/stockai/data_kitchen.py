@@ -65,6 +65,10 @@ class StockaiDataKitchen:
         # 模型文件名
         self.model_filename: str = ""
 
+        # 分类模型支持
+        self.unique_classes: dict[str, list] = {}
+        self.unique_class_list: list = []
+
         # 额外数据存储
         self.data: dict[str, Any] = {"extra_returns_per_train": {}}
 
