@@ -67,6 +67,10 @@ class BaseRegressionModel(IStockaiModel):
         # 2. 过滤特征和标签
         features_df, labels_df = dk.filter_features(df, training_filter=True)
 
+        # 移除 datetime 列 (如果有)，管道只处理数值特征
+        feature_cols = [c for c in features_df.columns if c != "datetime"]
+        features_df = features_df.select(feature_cols)
+
         # 3. 分割数据
         data_dict = dk.make_train_test_datasets(features_df, labels_df)
 
