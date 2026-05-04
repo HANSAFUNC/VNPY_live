@@ -106,8 +106,9 @@ class StockaiDataKitchen:
         if not self.label_list:
             raise ValueError("未找到标签列（需要&-前缀），请先调用 find_labels()")
 
-        # 提取特征
-        features_df = df.select(self.training_features_list)
+        # 提取特征 (包括 datetime 以便对齐)
+        cols_to_select = ["datetime"] + self.training_features_list if "datetime" in df.columns else self.training_features_list
+        features_df = df.select(cols_to_select)
 
         # 提取标签 (取第一个标签列用于训练)
         if len(self.label_list) == 1:
