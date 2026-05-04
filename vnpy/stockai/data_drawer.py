@@ -49,6 +49,9 @@ class StockaiDataDrawer:
         # 回测实时模型模式
         self.backtest_live_models = config.get("backtest_live_models", False)
 
+        # 指标追踪器
+        self.metric_tracker: dict[str, dict] = {}
+
         # 从磁盘加载已有数据
         self._load_from_disk()
 
@@ -211,3 +214,17 @@ class StockaiDataDrawer:
         age_days = (get_timestamp() - last_trained) / 86400
 
         return age_days > max_age_days
+
+    def update_metric_tracker(self, metric: str, value: float, pair: str) -> None:
+        """
+        更新指标追踪器
+
+        参数:
+            metric: 指标名称
+            value: 指标值
+            pair: 股票代码
+        """
+        if pair not in self.metric_tracker:
+            self.metric_tracker[pair] = {}
+        self.metric_tracker[pair][metric] = value
+        logger.debug(f"{pair}: 指标 {metric} = {value:.4f}")

@@ -1,25 +1,30 @@
-"""StockAI XGBoost 极值预测模型 - 完全复刻 FreqAI XGBoostRegressor"""
+"""StockAI XGBoost 极值预测模型 - 完全复刻 FreqAI XGBoostRegressorQuickAdapterV3"""
 
+import logging
+import time
 from typing import Any, Tuple
 
 import numpy as np
 import polars as pl
+import scipy as spy
 from xgboost import XGBRegressor
-
-from vnpy.alpha.logger import logger
 
 from ..base_models.base_regression_model import BaseRegressionModel
 from ..data_kitchen import StockaiDataKitchen
 
+logger = logging.getLogger(__name__)
+
 
 class XGBoostExtremaModel(BaseRegressionModel):
     """
-    XGBoost 极值预测模型 - 完全复刻 FreqAI XGBoostRegressor
+    XGBoost 极值预测模型 - 完全复刻 FreqAI XGBoostRegressorQuickAdapterV3
 
     特性:
     - 使用 XGBRegressor 进行回归预测
     - 支持早停
-    - 支持动态阈值计算
+    - 支持样本权重训练
+    - 支持动态阈值计算 (fit_live_predictions)
+    - 支持 DI 值 Weibull 分布拟合
     """
 
     def fit(
@@ -28,7 +33,7 @@ class XGBoostExtremaModel(BaseRegressionModel):
         dk: StockaiDataKitchen,
     ) -> XGBRegressor:
         """
-        训练 XGBoost 模型
+        训练 XGBoost 模型 - 复刻 QuickAdapterV3
 
         参数:
             data_dictionary: 包含训练/测试数据的字典
@@ -37,45 +42,141 @@ class XGBoostExtremaModel(BaseRegressionModel):
         返回:
             训练好的 XGBRegressor 模型
         """
-        X_train = data_dictionary["train_features"]
-        y_train = data_dictionary["train_labels"]
+        X = data_dictionary["train_features"]
+        y = data_dictionary["train_labels"]
+
+        # 准备评估集
+        if self.data_split_params.get("test_size", 0.1) == 0:
+            eval_set = None
+            eval_weights = None
+        else:
+            eval_set = [(data_dictionary["test_features"], data_dictionary["test_labels"])]
+            eval_weights = [data_dictionary.get("test_weights", None)]
+
+        # 获取样本权重
+        sample_weight = data_dictionary.get("train_weights", None)
+
+        # 获取增量训练模型（如果支持）
+        xgb_model = self._get_init_model(dk.pair)
 
         # 模型参数
-        params = {
-            "learning_rate": self.model_training_params.get("learning_rate", 0.05),
-            "max_depth": self.model_training_params.get("max_depth", 6),
-            "n_estimators": self.model_training_params.get("n_estimators", 100),
-            "early_stopping_rounds": self.model_training_params.get("early_stopping_rounds", 50),
-            "objective": "reg:squarederror",
-            "random_state": 42,
-            "n_jobs": -1,
-        }
+        model = XGBRegressor(**self.model_training_parameters)
 
-        model = XGBRegressor(**params)
+        # 训练
+        start = time.time()
+        model.fit(
+            X=X, y=y,
+            sample_weight=sample_weight,
+            eval_set=eval_set,
+            sample_weight_eval_set=eval_weights,
+            xgb_model=xgb_model,
+            verbose=False,
+        )
+        time_spent = time.time() - start
 
-        # 检查训练数据
-        logger.info(f"XGBoost 训练数据: X_train shape={X_train.shape}, y_train range=[{np.min(y_train):.4f}, {np.max(y_train):.4f}]")
-        if np.isnan(X_train).any() or np.isinf(X_train).any():
-            logger.error(f"XGBoost 训练特征包含 NaN/inf: {np.isnan(X_train).sum()} NaN, {np.isinf(X_train).sum()} inf")
-        if np.isnan(y_train).any() or np.isinf(y_train).any():
-            logger.error(f"XGBoost 训练标签包含 NaN/inf: {np.isnan(y_train).sum()} NaN, {np.isinf(y_train).sum()} inf")
+        # 记录训练时间
+        self.dd.update_metric_tracker("fit_time", time_spent, dk.pair)
 
-        # 如果有测试集，使用早停
-        if len(data_dictionary.get("test_features", [])) > 0:
-            X_test = data_dictionary["test_features"]
-            y_test = data_dictionary["test_labels"]
-            logger.info(f"XGBoost 测试数据: X_test shape={X_test.shape}")
-            model.fit(
-                X=X_train, y=y_train,
-                eval_set=[(X_test, y_test)],
-                verbose=False,
-            )
-            logger.info(f"XGBoost 训练完成: best_iteration={model.best_iteration}")
-        else:
-            model.fit(X=X_train, y=y_train)
-            logger.info(f"XGBoost 训练完成: n_estimators={model.n_estimators}")
+        logger.info(f"XGBoost 训练完成: {len(X)} 样本, 耗时 {time_spent:.2f}s")
+        if hasattr(model, 'best_iteration'):
+            logger.info(f"  best_iteration={model.best_iteration}")
 
         return model
+
+    def _get_init_model(self, pair: str):
+        """获取增量训练的初始模型"""
+        # 检查是否支持增量训练
+        if hasattr(self.dd, 'model_return_values') and pair in self.dd.model_return_values:
+            # 返回之前的模型用于继续训练
+            return self.dd.model_return_values[pair]
+        return None
+
+    def fit_live_predictions(self, dk: StockaiDataKitchen, pair: str) -> None:
+        """
+        拟合实时预测 - 计算动态阈值和 DI 值分布
+
+        基于历史预测结果计算：
+        1. 极大值/极小值动态阈值
+        2. DI 值的 Weibull 分布参数
+        """
+        warmed_up = True
+        num_candles = self.config.get("fit_live_predictions_candles", 100)
+
+        # 检查是否预热完成
+        if not hasattr(self, 'exchange_candles'):
+            self.exchange_candles = len(self.dd.historic_predictions.get(pair, pl.DataFrame()))
+
+        historic_df = self.dd.historic_predictions.get(pair)
+        if historic_df is None or len(historic_df) == 0:
+            logger.warning(f"{pair}: 无历史预测数据")
+            warmed_up = False
+        else:
+            candle_diff = len(historic_df) - (num_candles + self.exchange_candles)
+            if candle_diff < 0:
+                logger.warning(f"{pair}: 实时预测预热中，还需 {abs(candle_diff)} 根K线")
+                warmed_up = False
+
+        if historic_df is not None and len(historic_df) > 0:
+            pred_df_full = historic_df.tail(num_candles)
+
+            # 计算预测值的排序均值
+            label_cols = [c for c in pred_df_full.columns if c.startswith("&")]
+            max_pred = {}
+            min_pred = {}
+
+            for col in label_cols:
+                if pred_df_full[col].dtype in [pl.Float32, pl.Float64, pl.Float]:
+                    sorted_vals = pred_df_full[col].sort(descending=True)
+                    frequency = num_candles / (self.ft_params.get("label_period_candles", 10) * 2)
+                    freq_int = max(1, int(frequency))
+
+                    if len(sorted_vals) >= freq_int * 2:
+                        max_pred[col] = sorted_vals.head(freq_int).mean()
+                        min_pred[col] = sorted_vals.tail(freq_int).mean()
+
+            # 设置动态阈值
+            if not warmed_up:
+                dk.data["extra_returns_per_train"]["&s-maxima_sort_threshold"] = 2
+                dk.data["extra_returns_per_train"]["&s-minima_sort_threshold"] = -2
+            else:
+                label_name = dk.label_list[0] if dk.label_list else "&s-extrema"
+                dk.data["extra_returns_per_train"]["&s-maxima_sort_threshold"] = max_pred.get(label_name, 2)
+                dk.data["extra_returns_per_train"]["&s-minima_sort_threshold"] = min_pred.get(label_name, -2)
+
+            # 重置标签统计
+            dk.data["labels_mean"], dk.data["labels_std"] = {}, {}
+            for ft in dk.label_list:
+                dk.data["labels_std"][ft] = 0
+                dk.data["labels_mean"][ft] = 0
+
+            # 拟合 DI 值的 Weibull 分布
+            if "DI_values" in pred_df_full.columns and warmed_up:
+                try:
+                    di_values = pred_df_full["DI_values"].to_numpy().astype(float)
+                    # Weibull 分布拟合
+                    f = spy.stats.weibull_min.fit(di_values)
+                    cutoff = spy.stats.weibull_min.ppf(0.999, *f)
+
+                    dk.data["DI_value_mean"] = float(np.mean(di_values))
+                    dk.data["DI_value_std"] = float(np.std(di_values))
+                    dk.data["extra_returns_per_train"]["DI_value_param1"] = f[0]
+                    dk.data["extra_returns_per_train"]["DI_value_param2"] = f[1]
+                    dk.data["extra_returns_per_train"]["DI_value_param3"] = f[2]
+                    dk.data["extra_returns_per_train"]["DI_cutoff"] = cutoff
+
+                    logger.info(f"{pair}: DI Weibull 拟合完成, cutoff={cutoff:.4f}")
+                except Exception as e:
+                    logger.warning(f"{pair}: DI Weibull 拟合失败: {e}")
+                    dk.data["extra_returns_per_train"]["DI_value_param1"] = 0
+                    dk.data["extra_returns_per_train"]["DI_value_param2"] = 0
+                    dk.data["extra_returns_per_train"]["DI_value_param3"] = 0
+                    dk.data["extra_returns_per_train"]["DI_cutoff"] = 2
+            else:
+                # 未预热或没有 DI 值
+                dk.data["extra_returns_per_train"]["DI_value_param1"] = 0
+                dk.data["extra_returns_per_train"]["DI_value_param2"] = 0
+                dk.data["extra_returns_per_train"]["DI_value_param3"] = 0
+                dk.data["extra_returns_per_train"]["DI_cutoff"] = 2
 
     def predict(
         self,
@@ -83,7 +184,7 @@ class XGBoostExtremaModel(BaseRegressionModel):
         dk: StockaiDataKitchen,
     ) -> Tuple[pl.DataFrame, np.ndarray]:
         """
-        预测 - 继承基类流程，可添加后处理
+        预测 - 继承基类流程，添加后处理
 
         参数:
             df: 已包含特征的 DataFrame
@@ -95,7 +196,8 @@ class XGBoostExtremaModel(BaseRegressionModel):
         # 调用基类的通用预测流程
         predictions_df, do_predict = super().predict(df, dk)
 
-        # 添加额外信息 (可选)
-        # 例如: 动态阈值、置信度等
+        # 可选：调用 fit_live_predictions 更新动态阈值
+        if self.config.get("fit_live_predictions", False):
+            self.fit_live_predictions(dk, dk.pair)
 
         return predictions_df, do_predict
