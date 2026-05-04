@@ -265,6 +265,16 @@ class BaseRegressionModel(IStockaiModel):
         filename = self.dd.pair_dict[pair]["model_filename"]
         model_path = self.dd.full_path / filename
 
+        # 加载元数据（包含特征列表）
+        metadata_path = model_path / "metadata.json"
+        if metadata_path.exists():
+            import json
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            dk.training_features_list = metadata.get("training_features_list", [])
+            dk.label_list = metadata.get("label_list", [])
+            logger.info(f"{pair}: 从 metadata 加载特征列表 ({len(dk.training_features_list)} 个特征)")
+
         fp_path = model_path / "feature_pipeline.pkl"
         lp_path = model_path / "label_pipeline.pkl"
 
