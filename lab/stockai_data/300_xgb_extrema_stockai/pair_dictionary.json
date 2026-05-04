@@ -1,0 +1,502 @@
+{
+  "000963.SZSE": {
+    "model_filename": "sub-train-000963_SZSE_1777899076",
+    "trained_timestamp": 1777899076,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000963_SZSE_1777899076"
+  },
+  "000792.SZSE": {
+    "model_filename": "sub-train-000792_SZSE_1777899076",
+    "trained_timestamp": 1777899076,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000792_SZSE_1777899076"
+  },
+  "002028.SZSE": {
+    "model_filename": "sub-train-002028_SZSE_1777899076",
+    "trained_timestamp": 1777899076,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002028_SZSE_1777899076"
+  },
+  "300442.SZSE": {
+    "model_filename": "sub-train-300442_SZSE_1777899077",
+    "trained_timestamp": 1777899077,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300442_SZSE_1777899077"
+  },
+  "002384.SZSE": {
+    "model_filename": "sub-train-002384_SZSE_1777899077",
+    "trained_timestamp": 1777899077,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002384_SZSE_1777899077"
+  },
+  "002050.SZSE": {
+    "model_filename": "sub-train-002050_SZSE_1777899077",
+    "trained_timestamp": 1777899077,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002050_SZSE_1777899077"
+  },
+  "000768.SZSE": {
+    "model_filename": "sub-train-000768_SZSE_1777899077",
+    "trained_timestamp": 1777899077,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000768_SZSE_1777899077"
+  },
+  "300433.SZSE": {
+    "model_filename": "sub-train-300433_SZSE_1777899077",
+    "trained_timestamp": 1777899077,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300433_SZSE_1777899077"
+  },
+  "002422.SZSE": {
+    "model_filename": "sub-train-002422_SZSE_1777899078",
+    "trained_timestamp": 1777899078,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002422_SZSE_1777899078"
+  },
+  "300413.SZSE": {
+    "model_filename": "sub-train-300413_SZSE_1777899078",
+    "trained_timestamp": 1777899078,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300413_SZSE_1777899078"
+  },
+  "002236.SZSE": {
+    "model_filename": "sub-train-002236_SZSE_1777899078",
+    "trained_timestamp": 1777899078,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002236_SZSE_1777899078"
+  },
+  "000661.SZSE": {
+    "model_filename": "sub-train-000661_SZSE_1777899078",
+    "trained_timestamp": 1777899078,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000661_SZSE_1777899078"
+  },
+  "300418.SZSE": {
+    "model_filename": "sub-train-300418_SZSE_1777899078",
+    "trained_timestamp": 1777899078,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300418_SZSE_1777899078"
+  },
+  "001965.SZSE": {
+    "model_filename": "sub-train-001965_SZSE_1777899079",
+    "trained_timestamp": 1777899079,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-001965_SZSE_1777899079"
+  },
+  "002920.SZSE": {
+    "model_filename": "sub-train-002920_SZSE_1777899079",
+    "trained_timestamp": 1777899079,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002920_SZSE_1777899079"
+  },
+  "001979.SZSE": {
+    "model_filename": "sub-train-001979_SZSE_1777899079",
+    "trained_timestamp": 1777899079,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-001979_SZSE_1777899079"
+  },
+  "300661.SZSE": {
+    "model_filename": "sub-train-300661_SZSE_1777899079",
+    "trained_timestamp": 1777899079,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300661_SZSE_1777899079"
+  },
+  "002001.SZSE": {
+    "model_filename": "sub-train-002001_SZSE_1777899079",
+    "trained_timestamp": 1777899079,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002001_SZSE_1777899079"
+  },
+  "300033.SZSE": {
+    "model_filename": "sub-train-300033_SZSE_1777899080",
+    "trained_timestamp": 1777899080,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300033_SZSE_1777899080"
+  },
+  "000708.SZSE": {
+    "model_filename": "sub-train-000708_SZSE_1777899080",
+    "trained_timestamp": 1777899080,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000708_SZSE_1777899080"
+  },
+  "000999.SZSE": {
+    "model_filename": "sub-train-000999_SZSE_1777899080",
+    "trained_timestamp": 1777899080,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000999_SZSE_1777899080"
+  },
+  "002736.SZSE": {
+    "model_filename": "sub-train-002736_SZSE_1777899080",
+    "trained_timestamp": 1777899080,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002736_SZSE_1777899080"
+  },
+  "002493.SZSE": {
+    "model_filename": "sub-train-002493_SZSE_1777899080",
+    "trained_timestamp": 1777899080,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002493_SZSE_1777899080"
+  },
+  "002027.SZSE": {
+    "model_filename": "sub-train-002027_SZSE_1777899081",
+    "trained_timestamp": 1777899081,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002027_SZSE_1777899081"
+  },
+  "000776.SZSE": {
+    "model_filename": "sub-train-000776_SZSE_1777899081",
+    "trained_timestamp": 1777899081,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000776_SZSE_1777899081"
+  },
+  "002415.SZSE": {
+    "model_filename": "sub-train-002415_SZSE_1777899081",
+    "trained_timestamp": 1777899081,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002415_SZSE_1777899081"
+  },
+  "000338.SZSE": {
+    "model_filename": "sub-train-000338_SZSE_1777899081",
+    "trained_timestamp": 1777899081,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000338_SZSE_1777899081"
+  },
+  "000301.SZSE": {
+    "model_filename": "sub-train-000301_SZSE_1777899081",
+    "trained_timestamp": 1777899081,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000301_SZSE_1777899081"
+  },
+  "002241.SZSE": {
+    "model_filename": "sub-train-002241_SZSE_1777899082",
+    "trained_timestamp": 1777899082,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002241_SZSE_1777899082"
+  },
+  "000725.SZSE": {
+    "model_filename": "sub-train-000725_SZSE_1777899082",
+    "trained_timestamp": 1777899082,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000725_SZSE_1777899082"
+  },
+  "002371.SZSE": {
+    "model_filename": "sub-train-002371_SZSE_1777899082",
+    "trained_timestamp": 1777899082,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002371_SZSE_1777899082"
+  },
+  "000425.SZSE": {
+    "model_filename": "sub-train-000425_SZSE_1777899082",
+    "trained_timestamp": 1777899082,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000425_SZSE_1777899082"
+  },
+  "002600.SZSE": {
+    "model_filename": "sub-train-002600_SZSE_1777899082",
+    "trained_timestamp": 1777899082,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002600_SZSE_1777899082"
+  },
+  "002463.SZSE": {
+    "model_filename": "sub-train-002463_SZSE_1777899083",
+    "trained_timestamp": 1777899083,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002463_SZSE_1777899083"
+  },
+  "000617.SZSE": {
+    "model_filename": "sub-train-000617_SZSE_1777899083",
+    "trained_timestamp": 1777899083,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000617_SZSE_1777899083"
+  },
+  "002142.SZSE": {
+    "model_filename": "sub-train-002142_SZSE_1777899083",
+    "trained_timestamp": 1777899083,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002142_SZSE_1777899083"
+  },
+  "002352.SZSE": {
+    "model_filename": "sub-train-002352_SZSE_1777899083",
+    "trained_timestamp": 1777899083,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002352_SZSE_1777899083"
+  },
+  "002460.SZSE": {
+    "model_filename": "sub-train-002460_SZSE_1777899084",
+    "trained_timestamp": 1777899084,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002460_SZSE_1777899084"
+  },
+  "003816.SZSE": {
+    "model_filename": "sub-train-003816_SZSE_1777899084",
+    "trained_timestamp": 1777899084,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-003816_SZSE_1777899084"
+  },
+  "000786.SZSE": {
+    "model_filename": "sub-train-000786_SZSE_1777899084",
+    "trained_timestamp": 1777899084,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000786_SZSE_1777899084"
+  },
+  "000157.SZSE": {
+    "model_filename": "sub-train-000157_SZSE_1777899084",
+    "trained_timestamp": 1777899084,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000157_SZSE_1777899084"
+  },
+  "000625.SZSE": {
+    "model_filename": "sub-train-000625_SZSE_1777899084",
+    "trained_timestamp": 1777899084,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000625_SZSE_1777899084"
+  },
+  "000651.SZSE": {
+    "model_filename": "sub-train-000651_SZSE_1777899085",
+    "trained_timestamp": 1777899085,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000651_SZSE_1777899085"
+  },
+  "300316.SZSE": {
+    "model_filename": "sub-train-300316_SZSE_1777899085",
+    "trained_timestamp": 1777899085,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300316_SZSE_1777899085"
+  },
+  "000895.SZSE": {
+    "model_filename": "sub-train-000895_SZSE_1777899085",
+    "trained_timestamp": 1777899085,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000895_SZSE_1777899085"
+  },
+  "300750.SZSE": {
+    "model_filename": "sub-train-300750_SZSE_1777899085",
+    "trained_timestamp": 1777899085,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300750_SZSE_1777899085"
+  },
+  "002049.SZSE": {
+    "model_filename": "sub-train-002049_SZSE_1777899085",
+    "trained_timestamp": 1777899085,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002049_SZSE_1777899085"
+  },
+  "000975.SZSE": {
+    "model_filename": "sub-train-000975_SZSE_1777899085",
+    "trained_timestamp": 1777899085,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000975_SZSE_1777899085"
+  },
+  "000568.SZSE": {
+    "model_filename": "sub-train-000568_SZSE_1777899086",
+    "trained_timestamp": 1777899086,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000568_SZSE_1777899086"
+  },
+  "300498.SZSE": {
+    "model_filename": "sub-train-300498_SZSE_1777899086",
+    "trained_timestamp": 1777899086,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300498_SZSE_1777899086"
+  },
+  "002594.SZSE": {
+    "model_filename": "sub-train-002594_SZSE_1777899086",
+    "trained_timestamp": 1777899086,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002594_SZSE_1777899086"
+  },
+  "002466.SZSE": {
+    "model_filename": "sub-train-002466_SZSE_1777899087",
+    "trained_timestamp": 1777899087,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002466_SZSE_1777899087"
+  },
+  "002714.SZSE": {
+    "model_filename": "sub-train-002714_SZSE_1777899087",
+    "trained_timestamp": 1777899087,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002714_SZSE_1777899087"
+  },
+  "300628.SZSE": {
+    "model_filename": "sub-train-300628_SZSE_1777899087",
+    "trained_timestamp": 1777899087,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300628_SZSE_1777899087"
+  },
+  "002648.SZSE": {
+    "model_filename": "sub-train-002648_SZSE_1777899087",
+    "trained_timestamp": 1777899087,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002648_SZSE_1777899087"
+  },
+  "000938.SZSE": {
+    "model_filename": "sub-train-000938_SZSE_1777899087",
+    "trained_timestamp": 1777899087,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000938_SZSE_1777899087"
+  },
+  "300274.SZSE": {
+    "model_filename": "sub-train-300274_SZSE_1777899088",
+    "trained_timestamp": 1777899088,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300274_SZSE_1777899088"
+  },
+  "300122.SZSE": {
+    "model_filename": "sub-train-300122_SZSE_1777899088",
+    "trained_timestamp": 1777899088,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300122_SZSE_1777899088"
+  },
+  "000002.SZSE": {
+    "model_filename": "sub-train-000002_SZSE_1777899088",
+    "trained_timestamp": 1777899088,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000002_SZSE_1777899088"
+  },
+  "002304.SZSE": {
+    "model_filename": "sub-train-002304_SZSE_1777899088",
+    "trained_timestamp": 1777899088,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002304_SZSE_1777899088"
+  },
+  "300476.SZSE": {
+    "model_filename": "sub-train-300476_SZSE_1777899088",
+    "trained_timestamp": 1777899088,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300476_SZSE_1777899088"
+  },
+  "000876.SZSE": {
+    "model_filename": "sub-train-000876_SZSE_1777899089",
+    "trained_timestamp": 1777899089,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000876_SZSE_1777899089"
+  },
+  "300394.SZSE": {
+    "model_filename": "sub-train-300394_SZSE_1777899089",
+    "trained_timestamp": 1777899089,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300394_SZSE_1777899089"
+  },
+  "000408.SZSE": {
+    "model_filename": "sub-train-000408_SZSE_1777899089",
+    "trained_timestamp": 1777899089,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000408_SZSE_1777899089"
+  },
+  "000538.SZSE": {
+    "model_filename": "sub-train-000538_SZSE_1777899089",
+    "trained_timestamp": 1777899089,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000538_SZSE_1777899089"
+  },
+  "300015.SZSE": {
+    "model_filename": "sub-train-300015_SZSE_1777899090",
+    "trained_timestamp": 1777899090,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300015_SZSE_1777899090"
+  },
+  "300760.SZSE": {
+    "model_filename": "sub-train-300760_SZSE_1777899090",
+    "trained_timestamp": 1777899090,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300760_SZSE_1777899090"
+  },
+  "001391.SZSE": {
+    "model_filename": "sub-train-001391_SZSE_1777899090",
+    "trained_timestamp": 1777899090,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-001391_SZSE_1777899090"
+  },
+  "002074.SZSE": {
+    "model_filename": "sub-train-002074_SZSE_1777899090",
+    "trained_timestamp": 1777899090,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002074_SZSE_1777899090"
+  },
+  "300759.SZSE": {
+    "model_filename": "sub-train-300759_SZSE_1777899090",
+    "trained_timestamp": 1777899090,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300759_SZSE_1777899090"
+  },
+  "000001.SZSE": {
+    "model_filename": "sub-train-000001_SZSE_1777899091",
+    "trained_timestamp": 1777899091,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000001_SZSE_1777899091"
+  },
+  "000983.SZSE": {
+    "model_filename": "sub-train-000983_SZSE_1777899091",
+    "trained_timestamp": 1777899091,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000983_SZSE_1777899091"
+  },
+  "000063.SZSE": {
+    "model_filename": "sub-train-000063_SZSE_1777899091",
+    "trained_timestamp": 1777899091,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000063_SZSE_1777899091"
+  },
+  "000858.SZSE": {
+    "model_filename": "sub-train-000858_SZSE_1777899091",
+    "trained_timestamp": 1777899091,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000858_SZSE_1777899091"
+  },
+  "002311.SZSE": {
+    "model_filename": "sub-train-002311_SZSE_1777899092",
+    "trained_timestamp": 1777899092,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002311_SZSE_1777899092"
+  },
+  "300308.SZSE": {
+    "model_filename": "sub-train-300308_SZSE_1777899092",
+    "trained_timestamp": 1777899092,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300308_SZSE_1777899092"
+  },
+  "300059.SZSE": {
+    "model_filename": "sub-train-300059_SZSE_1777899092",
+    "trained_timestamp": 1777899092,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300059_SZSE_1777899092"
+  },
+  "300124.SZSE": {
+    "model_filename": "sub-train-300124_SZSE_1777899092",
+    "trained_timestamp": 1777899092,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300124_SZSE_1777899092"
+  },
+  "300014.SZSE": {
+    "model_filename": "sub-train-300014_SZSE_1777899092",
+    "trained_timestamp": 1777899092,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300014_SZSE_1777899092"
+  },
+  "002475.SZSE": {
+    "model_filename": "sub-train-002475_SZSE_1777899093",
+    "trained_timestamp": 1777899093,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002475_SZSE_1777899093"
+  },
+  "000100.SZSE": {
+    "model_filename": "sub-train-000100_SZSE_1777899093",
+    "trained_timestamp": 1777899093,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000100_SZSE_1777899093"
+  },
+  "300347.SZSE": {
+    "model_filename": "sub-train-300347_SZSE_1777899093",
+    "trained_timestamp": 1777899093,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300347_SZSE_1777899093"
+  },
+  "000166.SZSE": {
+    "model_filename": "sub-train-000166_SZSE_1777899093",
+    "trained_timestamp": 1777899093,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000166_SZSE_1777899093"
+  },
+  "300408.SZSE": {
+    "model_filename": "sub-train-300408_SZSE_1777899093",
+    "trained_timestamp": 1777899093,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300408_SZSE_1777899093"
+  },
+  "002916.SZSE": {
+    "model_filename": "sub-train-002916_SZSE_1777899094",
+    "trained_timestamp": 1777899094,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002916_SZSE_1777899094"
+  },
+  "002625.SZSE": {
+    "model_filename": "sub-train-002625_SZSE_1777899094",
+    "trained_timestamp": 1777899094,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002625_SZSE_1777899094"
+  },
+  "300251.SZSE": {
+    "model_filename": "sub-train-300251_SZSE_1777899094",
+    "trained_timestamp": 1777899094,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300251_SZSE_1777899094"
+  },
+  "002601.SZSE": {
+    "model_filename": "sub-train-002601_SZSE_1777899094",
+    "trained_timestamp": 1777899094,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002601_SZSE_1777899094"
+  },
+  "000977.SZSE": {
+    "model_filename": "sub-train-000977_SZSE_1777899095",
+    "trained_timestamp": 1777899095,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000977_SZSE_1777899095"
+  },
+  "000807.SZSE": {
+    "model_filename": "sub-train-000807_SZSE_1777899095",
+    "trained_timestamp": 1777899095,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000807_SZSE_1777899095"
+  },
+  "002938.SZSE": {
+    "model_filename": "sub-train-002938_SZSE_1777899095",
+    "trained_timestamp": 1777899095,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002938_SZSE_1777899095"
+  },
+  "002230.SZSE": {
+    "model_filename": "sub-train-002230_SZSE_1777899095",
+    "trained_timestamp": 1777899095,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002230_SZSE_1777899095"
+  },
+  "300502.SZSE": {
+    "model_filename": "sub-train-300502_SZSE_1777899096",
+    "trained_timestamp": 1777899096,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-300502_SZSE_1777899096"
+  },
+  "002459.SZSE": {
+    "model_filename": "sub-train-002459_SZSE_1777899096",
+    "trained_timestamp": 1777899096,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002459_SZSE_1777899096"
+  },
+  "002709.SZSE": {
+    "model_filename": "sub-train-002709_SZSE_1777899096",
+    "trained_timestamp": 1777899096,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002709_SZSE_1777899096"
+  },
+  "000630.SZSE": {
+    "model_filename": "sub-train-000630_SZSE_1777899096",
+    "trained_timestamp": 1777899096,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000630_SZSE_1777899096"
+  },
+  "002252.SZSE": {
+    "model_filename": "sub-train-002252_SZSE_1777899096",
+    "trained_timestamp": 1777899096,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002252_SZSE_1777899096"
+  },
+  "002179.SZSE": {
+    "model_filename": "sub-train-002179_SZSE_1777899097",
+    "trained_timestamp": 1777899097,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-002179_SZSE_1777899097"
+  },
+  "000596.SZSE": {
+    "model_filename": "sub-train-000596_SZSE_1777899097",
+    "trained_timestamp": 1777899097,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000596_SZSE_1777899097"
+  },
+  "000333.SZSE": {
+    "model_filename": "sub-train-000333_SZSE_1777899097",
+    "trained_timestamp": 1777899097,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema_stockai\\sub-train-000333_SZSE_1777899097"
+  }
+}

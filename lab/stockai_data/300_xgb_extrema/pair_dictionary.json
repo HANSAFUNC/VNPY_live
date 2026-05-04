@@ -1,0 +1,502 @@
+{
+  "000063.SZSE": {
+    "model_filename": "sub-train-000063_SZSE_1777900705",
+    "trained_timestamp": 1777900705,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000063_SZSE_1777900705"
+  },
+  "300760.SZSE": {
+    "model_filename": "sub-train-300760_SZSE_1777900706",
+    "trained_timestamp": 1777900706,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300760_SZSE_1777900706"
+  },
+  "000625.SZSE": {
+    "model_filename": "sub-train-000625_SZSE_1777900706",
+    "trained_timestamp": 1777900706,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000625_SZSE_1777900706"
+  },
+  "000408.SZSE": {
+    "model_filename": "sub-train-000408_SZSE_1777900706",
+    "trained_timestamp": 1777900706,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000408_SZSE_1777900706"
+  },
+  "001979.SZSE": {
+    "model_filename": "sub-train-001979_SZSE_1777900706",
+    "trained_timestamp": 1777900706,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-001979_SZSE_1777900706"
+  },
+  "000963.SZSE": {
+    "model_filename": "sub-train-000963_SZSE_1777900707",
+    "trained_timestamp": 1777900707,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000963_SZSE_1777900707"
+  },
+  "000617.SZSE": {
+    "model_filename": "sub-train-000617_SZSE_1777900707",
+    "trained_timestamp": 1777900707,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000617_SZSE_1777900707"
+  },
+  "002601.SZSE": {
+    "model_filename": "sub-train-002601_SZSE_1777900707",
+    "trained_timestamp": 1777900707,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002601_SZSE_1777900707"
+  },
+  "002304.SZSE": {
+    "model_filename": "sub-train-002304_SZSE_1777900708",
+    "trained_timestamp": 1777900708,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002304_SZSE_1777900708"
+  },
+  "300316.SZSE": {
+    "model_filename": "sub-train-300316_SZSE_1777900708",
+    "trained_timestamp": 1777900708,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300316_SZSE_1777900708"
+  },
+  "000983.SZSE": {
+    "model_filename": "sub-train-000983_SZSE_1777900708",
+    "trained_timestamp": 1777900708,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000983_SZSE_1777900708"
+  },
+  "000938.SZSE": {
+    "model_filename": "sub-train-000938_SZSE_1777900708",
+    "trained_timestamp": 1777900708,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000938_SZSE_1777900708"
+  },
+  "300308.SZSE": {
+    "model_filename": "sub-train-300308_SZSE_1777900709",
+    "trained_timestamp": 1777900709,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300308_SZSE_1777900709"
+  },
+  "300628.SZSE": {
+    "model_filename": "sub-train-300628_SZSE_1777900709",
+    "trained_timestamp": 1777900709,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300628_SZSE_1777900709"
+  },
+  "000977.SZSE": {
+    "model_filename": "sub-train-000977_SZSE_1777900710",
+    "trained_timestamp": 1777900710,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000977_SZSE_1777900710"
+  },
+  "300413.SZSE": {
+    "model_filename": "sub-train-300413_SZSE_1777900710",
+    "trained_timestamp": 1777900710,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300413_SZSE_1777900710"
+  },
+  "002179.SZSE": {
+    "model_filename": "sub-train-002179_SZSE_1777900710",
+    "trained_timestamp": 1777900710,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002179_SZSE_1777900710"
+  },
+  "000425.SZSE": {
+    "model_filename": "sub-train-000425_SZSE_1777900711",
+    "trained_timestamp": 1777900711,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000425_SZSE_1777900711"
+  },
+  "300502.SZSE": {
+    "model_filename": "sub-train-300502_SZSE_1777900711",
+    "trained_timestamp": 1777900711,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300502_SZSE_1777900711"
+  },
+  "000002.SZSE": {
+    "model_filename": "sub-train-000002_SZSE_1777900711",
+    "trained_timestamp": 1777900711,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000002_SZSE_1777900711"
+  },
+  "001391.SZSE": {
+    "model_filename": "sub-train-001391_SZSE_1777900712",
+    "trained_timestamp": 1777900712,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-001391_SZSE_1777900712"
+  },
+  "002938.SZSE": {
+    "model_filename": "sub-train-002938_SZSE_1777900712",
+    "trained_timestamp": 1777900712,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002938_SZSE_1777900712"
+  },
+  "000596.SZSE": {
+    "model_filename": "sub-train-000596_SZSE_1777900712",
+    "trained_timestamp": 1777900712,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000596_SZSE_1777900712"
+  },
+  "000301.SZSE": {
+    "model_filename": "sub-train-000301_SZSE_1777900713",
+    "trained_timestamp": 1777900713,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000301_SZSE_1777900713"
+  },
+  "003816.SZSE": {
+    "model_filename": "sub-train-003816_SZSE_1777900713",
+    "trained_timestamp": 1777900713,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-003816_SZSE_1777900713"
+  },
+  "000651.SZSE": {
+    "model_filename": "sub-train-000651_SZSE_1777900713",
+    "trained_timestamp": 1777900713,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000651_SZSE_1777900713"
+  },
+  "002422.SZSE": {
+    "model_filename": "sub-train-002422_SZSE_1777900714",
+    "trained_timestamp": 1777900714,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002422_SZSE_1777900714"
+  },
+  "002028.SZSE": {
+    "model_filename": "sub-train-002028_SZSE_1777900714",
+    "trained_timestamp": 1777900714,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002028_SZSE_1777900714"
+  },
+  "000807.SZSE": {
+    "model_filename": "sub-train-000807_SZSE_1777900714",
+    "trained_timestamp": 1777900714,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000807_SZSE_1777900714"
+  },
+  "300274.SZSE": {
+    "model_filename": "sub-train-300274_SZSE_1777900715",
+    "trained_timestamp": 1777900715,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300274_SZSE_1777900715"
+  },
+  "002371.SZSE": {
+    "model_filename": "sub-train-002371_SZSE_1777900715",
+    "trained_timestamp": 1777900715,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002371_SZSE_1777900715"
+  },
+  "300124.SZSE": {
+    "model_filename": "sub-train-300124_SZSE_1777900715",
+    "trained_timestamp": 1777900715,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300124_SZSE_1777900715"
+  },
+  "000708.SZSE": {
+    "model_filename": "sub-train-000708_SZSE_1777900715",
+    "trained_timestamp": 1777900715,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000708_SZSE_1777900715"
+  },
+  "300759.SZSE": {
+    "model_filename": "sub-train-300759_SZSE_1777900716",
+    "trained_timestamp": 1777900716,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300759_SZSE_1777900716"
+  },
+  "000538.SZSE": {
+    "model_filename": "sub-train-000538_SZSE_1777900716",
+    "trained_timestamp": 1777900716,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000538_SZSE_1777900716"
+  },
+  "002241.SZSE": {
+    "model_filename": "sub-train-002241_SZSE_1777900717",
+    "trained_timestamp": 1777900717,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002241_SZSE_1777900717"
+  },
+  "300059.SZSE": {
+    "model_filename": "sub-train-300059_SZSE_1777900717",
+    "trained_timestamp": 1777900717,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300059_SZSE_1777900717"
+  },
+  "002916.SZSE": {
+    "model_filename": "sub-train-002916_SZSE_1777900717",
+    "trained_timestamp": 1777900717,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002916_SZSE_1777900717"
+  },
+  "300418.SZSE": {
+    "model_filename": "sub-train-300418_SZSE_1777900717",
+    "trained_timestamp": 1777900717,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300418_SZSE_1777900717"
+  },
+  "002460.SZSE": {
+    "model_filename": "sub-train-002460_SZSE_1777900718",
+    "trained_timestamp": 1777900718,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002460_SZSE_1777900718"
+  },
+  "002648.SZSE": {
+    "model_filename": "sub-train-002648_SZSE_1777900718",
+    "trained_timestamp": 1777900718,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002648_SZSE_1777900718"
+  },
+  "000725.SZSE": {
+    "model_filename": "sub-train-000725_SZSE_1777900718",
+    "trained_timestamp": 1777900718,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000725_SZSE_1777900718"
+  },
+  "002027.SZSE": {
+    "model_filename": "sub-train-002027_SZSE_1777900719",
+    "trained_timestamp": 1777900719,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002027_SZSE_1777900719"
+  },
+  "002050.SZSE": {
+    "model_filename": "sub-train-002050_SZSE_1777900719",
+    "trained_timestamp": 1777900719,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002050_SZSE_1777900719"
+  },
+  "002384.SZSE": {
+    "model_filename": "sub-train-002384_SZSE_1777900719",
+    "trained_timestamp": 1777900719,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002384_SZSE_1777900719"
+  },
+  "002459.SZSE": {
+    "model_filename": "sub-train-002459_SZSE_1777900720",
+    "trained_timestamp": 1777900720,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002459_SZSE_1777900720"
+  },
+  "000975.SZSE": {
+    "model_filename": "sub-train-000975_SZSE_1777900720",
+    "trained_timestamp": 1777900720,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000975_SZSE_1777900720"
+  },
+  "002475.SZSE": {
+    "model_filename": "sub-train-002475_SZSE_1777900720",
+    "trained_timestamp": 1777900720,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002475_SZSE_1777900720"
+  },
+  "002600.SZSE": {
+    "model_filename": "sub-train-002600_SZSE_1777900721",
+    "trained_timestamp": 1777900721,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002600_SZSE_1777900721"
+  },
+  "300476.SZSE": {
+    "model_filename": "sub-train-300476_SZSE_1777900721",
+    "trained_timestamp": 1777900721,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300476_SZSE_1777900721"
+  },
+  "002142.SZSE": {
+    "model_filename": "sub-train-002142_SZSE_1777900721",
+    "trained_timestamp": 1777900721,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002142_SZSE_1777900721"
+  },
+  "000157.SZSE": {
+    "model_filename": "sub-train-000157_SZSE_1777900722",
+    "trained_timestamp": 1777900722,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000157_SZSE_1777900722"
+  },
+  "000333.SZSE": {
+    "model_filename": "sub-train-000333_SZSE_1777900722",
+    "trained_timestamp": 1777900722,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000333_SZSE_1777900722"
+  },
+  "000876.SZSE": {
+    "model_filename": "sub-train-000876_SZSE_1777900723",
+    "trained_timestamp": 1777900723,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000876_SZSE_1777900723"
+  },
+  "002625.SZSE": {
+    "model_filename": "sub-train-002625_SZSE_1777900723",
+    "trained_timestamp": 1777900723,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002625_SZSE_1777900723"
+  },
+  "300750.SZSE": {
+    "model_filename": "sub-train-300750_SZSE_1777900723",
+    "trained_timestamp": 1777900723,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300750_SZSE_1777900723"
+  },
+  "000858.SZSE": {
+    "model_filename": "sub-train-000858_SZSE_1777900724",
+    "trained_timestamp": 1777900724,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000858_SZSE_1777900724"
+  },
+  "300408.SZSE": {
+    "model_filename": "sub-train-300408_SZSE_1777900724",
+    "trained_timestamp": 1777900724,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300408_SZSE_1777900724"
+  },
+  "002049.SZSE": {
+    "model_filename": "sub-train-002049_SZSE_1777900724",
+    "trained_timestamp": 1777900724,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002049_SZSE_1777900724"
+  },
+  "300394.SZSE": {
+    "model_filename": "sub-train-300394_SZSE_1777900724",
+    "trained_timestamp": 1777900724,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300394_SZSE_1777900724"
+  },
+  "001965.SZSE": {
+    "model_filename": "sub-train-001965_SZSE_1777900725",
+    "trained_timestamp": 1777900725,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-001965_SZSE_1777900725"
+  },
+  "000768.SZSE": {
+    "model_filename": "sub-train-000768_SZSE_1777900725",
+    "trained_timestamp": 1777900725,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000768_SZSE_1777900725"
+  },
+  "300033.SZSE": {
+    "model_filename": "sub-train-300033_SZSE_1777900725",
+    "trained_timestamp": 1777900725,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300033_SZSE_1777900725"
+  },
+  "002415.SZSE": {
+    "model_filename": "sub-train-002415_SZSE_1777900726",
+    "trained_timestamp": 1777900726,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002415_SZSE_1777900726"
+  },
+  "002714.SZSE": {
+    "model_filename": "sub-train-002714_SZSE_1777900726",
+    "trained_timestamp": 1777900726,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002714_SZSE_1777900726"
+  },
+  "300347.SZSE": {
+    "model_filename": "sub-train-300347_SZSE_1777900726",
+    "trained_timestamp": 1777900726,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300347_SZSE_1777900726"
+  },
+  "000786.SZSE": {
+    "model_filename": "sub-train-000786_SZSE_1777900727",
+    "trained_timestamp": 1777900727,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000786_SZSE_1777900727"
+  },
+  "000895.SZSE": {
+    "model_filename": "sub-train-000895_SZSE_1777900727",
+    "trained_timestamp": 1777900727,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000895_SZSE_1777900727"
+  },
+  "002252.SZSE": {
+    "model_filename": "sub-train-002252_SZSE_1777900727",
+    "trained_timestamp": 1777900727,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002252_SZSE_1777900727"
+  },
+  "002352.SZSE": {
+    "model_filename": "sub-train-002352_SZSE_1777900728",
+    "trained_timestamp": 1777900728,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002352_SZSE_1777900728"
+  },
+  "002001.SZSE": {
+    "model_filename": "sub-train-002001_SZSE_1777900728",
+    "trained_timestamp": 1777900728,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002001_SZSE_1777900728"
+  },
+  "300661.SZSE": {
+    "model_filename": "sub-train-300661_SZSE_1777900728",
+    "trained_timestamp": 1777900728,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300661_SZSE_1777900728"
+  },
+  "000630.SZSE": {
+    "model_filename": "sub-train-000630_SZSE_1777900729",
+    "trained_timestamp": 1777900729,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000630_SZSE_1777900729"
+  },
+  "002230.SZSE": {
+    "model_filename": "sub-train-002230_SZSE_1777900729",
+    "trained_timestamp": 1777900729,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002230_SZSE_1777900729"
+  },
+  "000100.SZSE": {
+    "model_filename": "sub-train-000100_SZSE_1777900729",
+    "trained_timestamp": 1777900729,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000100_SZSE_1777900729"
+  },
+  "300433.SZSE": {
+    "model_filename": "sub-train-300433_SZSE_1777900730",
+    "trained_timestamp": 1777900730,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300433_SZSE_1777900730"
+  },
+  "002736.SZSE": {
+    "model_filename": "sub-train-002736_SZSE_1777900730",
+    "trained_timestamp": 1777900730,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002736_SZSE_1777900730"
+  },
+  "000166.SZSE": {
+    "model_filename": "sub-train-000166_SZSE_1777900730",
+    "trained_timestamp": 1777900730,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000166_SZSE_1777900730"
+  },
+  "300014.SZSE": {
+    "model_filename": "sub-train-300014_SZSE_1777900730",
+    "trained_timestamp": 1777900730,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300014_SZSE_1777900730"
+  },
+  "002594.SZSE": {
+    "model_filename": "sub-train-002594_SZSE_1777900731",
+    "trained_timestamp": 1777900731,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002594_SZSE_1777900731"
+  },
+  "000001.SZSE": {
+    "model_filename": "sub-train-000001_SZSE_1777900731",
+    "trained_timestamp": 1777900731,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000001_SZSE_1777900731"
+  },
+  "300498.SZSE": {
+    "model_filename": "sub-train-300498_SZSE_1777900731",
+    "trained_timestamp": 1777900731,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300498_SZSE_1777900731"
+  },
+  "002709.SZSE": {
+    "model_filename": "sub-train-002709_SZSE_1777900732",
+    "trained_timestamp": 1777900732,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002709_SZSE_1777900732"
+  },
+  "002074.SZSE": {
+    "model_filename": "sub-train-002074_SZSE_1777900732",
+    "trained_timestamp": 1777900732,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002074_SZSE_1777900732"
+  },
+  "002920.SZSE": {
+    "model_filename": "sub-train-002920_SZSE_1777900732",
+    "trained_timestamp": 1777900732,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002920_SZSE_1777900732"
+  },
+  "002463.SZSE": {
+    "model_filename": "sub-train-002463_SZSE_1777900733",
+    "trained_timestamp": 1777900733,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002463_SZSE_1777900733"
+  },
+  "002466.SZSE": {
+    "model_filename": "sub-train-002466_SZSE_1777900733",
+    "trained_timestamp": 1777900733,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002466_SZSE_1777900733"
+  },
+  "000568.SZSE": {
+    "model_filename": "sub-train-000568_SZSE_1777900733",
+    "trained_timestamp": 1777900733,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000568_SZSE_1777900733"
+  },
+  "002493.SZSE": {
+    "model_filename": "sub-train-002493_SZSE_1777900734",
+    "trained_timestamp": 1777900734,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002493_SZSE_1777900734"
+  },
+  "300442.SZSE": {
+    "model_filename": "sub-train-300442_SZSE_1777900734",
+    "trained_timestamp": 1777900734,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300442_SZSE_1777900734"
+  },
+  "000776.SZSE": {
+    "model_filename": "sub-train-000776_SZSE_1777900734",
+    "trained_timestamp": 1777900734,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000776_SZSE_1777900734"
+  },
+  "000338.SZSE": {
+    "model_filename": "sub-train-000338_SZSE_1777900735",
+    "trained_timestamp": 1777900735,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000338_SZSE_1777900735"
+  },
+  "000792.SZSE": {
+    "model_filename": "sub-train-000792_SZSE_1777900735",
+    "trained_timestamp": 1777900735,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000792_SZSE_1777900735"
+  },
+  "002236.SZSE": {
+    "model_filename": "sub-train-002236_SZSE_1777900735",
+    "trained_timestamp": 1777900735,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002236_SZSE_1777900735"
+  },
+  "300251.SZSE": {
+    "model_filename": "sub-train-300251_SZSE_1777900736",
+    "trained_timestamp": 1777900736,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300251_SZSE_1777900736"
+  },
+  "000999.SZSE": {
+    "model_filename": "sub-train-000999_SZSE_1777900736",
+    "trained_timestamp": 1777900736,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000999_SZSE_1777900736"
+  },
+  "300015.SZSE": {
+    "model_filename": "sub-train-300015_SZSE_1777900736",
+    "trained_timestamp": 1777900736,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300015_SZSE_1777900736"
+  },
+  "002311.SZSE": {
+    "model_filename": "sub-train-002311_SZSE_1777900737",
+    "trained_timestamp": 1777900737,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-002311_SZSE_1777900737"
+  },
+  "000661.SZSE": {
+    "model_filename": "sub-train-000661_SZSE_1777900737",
+    "trained_timestamp": 1777900737,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-000661_SZSE_1777900737"
+  },
+  "300122.SZSE": {
+    "model_filename": "sub-train-300122_SZSE_1777900737",
+    "trained_timestamp": 1777900737,
+    "data_path": "F:\\vnpy_live\\lab\\stockai_data\\300_xgb_extrema\\sub-train-300122_SZSE_1777900737"
+  }
+}

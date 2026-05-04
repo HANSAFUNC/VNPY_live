@@ -6,6 +6,8 @@ XGBoost 极值选股器 (StockAI + FreqAI 架构)
 - StockAI 层: 只负责训练/预测流程管理
 """
 import warnings
+
+from vnpy.alpha import Segment
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)
 
@@ -21,6 +23,7 @@ from vnpy.trader.constant import Interval
 from vnpy.alpha.lab_v2 import AlphaLabV2Engine as AlphaLabV2
 from vnpy.alpha.dataset.datasets.quick_adapter_v5 import QuickAdapterV5Dataset
 from vnpy.stockai.prediction_models.xgb_extrema_model import XGBoostExtremaModel
+from vnpy.stockai.data_kitchen import StockaiDataKitchen
 from vnpy.alpha.logger import logger
 
 
@@ -240,7 +243,7 @@ class XGBoostExtremaSelector:
         stockai_model = XGBoostExtremaModel(self.stockai_config, self.lab)
         self.stockai_model = stockai_model
 
-        learn_df = self.dataset.learn_df
+        learn_df = self.dataset.fetch_learn(Segment.TRAIN)
         unique_symbols = learn_df["vt_symbol"].unique().to_list()
         total = len(unique_symbols)
 
@@ -290,34 +293,40 @@ class XGBoostExtremaSelector:
             logger.error("StockAI 模型未初始化")
             return pl.DataFrame()
 
-        learn_df = self.dataset.learn_df
-        unique_symbols = learn_df["vt_symbol"].unique().to_list()
+        test_df = self.dataset.fetch_learn(Segment.TEST)    
+        unique_symbols = test_df["vt_symbol"].unique().to_list()
 
         all_predictions = []
 
         for symbol in unique_symbols:
             try:
                 # 提取该股票的数据
-                symbol_df = learn_df.filter(pl.col("vt_symbol") == symbol)
+                symbol_df = test_df.filter(pl.col("vt_symbol") == symbol)
 
                 if len(symbol_df) == 0:
                     continue
 
-                # 使用 StockAI 预测
-                predictions_df, do_predict = self.stockai_model.predict(
+                # 使用 StockAI start 方法进行预测
+                # start 方法会处理模型加载和预测
+                result_df = self.stockai_model.start(
                     df=symbol_df,
                     pair=symbol,
                 )
-
-                # 添加股票代码
-                predictions_df = predictions_df.with_columns([
-                    pl.lit(symbol).alias("vt_symbol"),
-                ])
-
-                all_predictions.append(predictions_df)
+                # logger.info(f"预测结果: {result_df.head(10)}")
+                # 提取预测结果并添加股票代码
+                # 预测列名是标签列名 &s-extrema
+                prediction_col = "&s-extrema"
+                if prediction_col in result_df.columns:
+                    predictions_df = result_df.select([
+                        "datetime",
+                        prediction_col
+                    ]).with_columns([pl.lit(symbol).alias("vt_symbol")])
+                    all_predictions.append(predictions_df)
 
             except Exception as e:
                 logger.error(f"预测失败: {symbol} - {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 continue
 
         if not all_predictions:
@@ -329,18 +338,17 @@ class XGBoostExtremaSelector:
         self.result_df = result_df
 
         logger.info(f"预测结果形状: {result_df.shape}")
-
+     
         # 生成信号 (基于阈值)
-        # 这里需要根据实际情况调整阈值逻辑
-        # 简化版: 预测值 > 0.5 为买入信号，< -0.5 为卖出信号
+        # 简化版: 预测值 > 0.5 为极大值点，< -0.5 为极小值点
 
         maxima_signals = result_df.filter(
-            pl.col("prediction") > 0.5
-        ).select(["datetime", "vt_symbol", "prediction"])
+            pl.col("&s-extrema") > 0.5
+        ).select(["datetime", "vt_symbol", "&s-extrema"])
 
         minima_signals = result_df.filter(
-            pl.col("prediction") < -0.5
-        ).select(["datetime", "vt_symbol", "prediction"])
+            pl.col("&s-extrema") < -0.5
+        ).select(["datetime", "vt_symbol", "&s-extrema"])
 
         # 添加信号列
         maxima_signals = maxima_signals.with_columns(pl.lit(-1).alias("signal"))
@@ -355,6 +363,12 @@ class XGBoostExtremaSelector:
         )
 
         self.signal_df = signal_df
+
+        # 保存信号到 lab
+        if self.lab and hasattr(self.lab, 'save_signal') and len(signal_df) > 0:
+            self.lab.save_signal(self.name, signal_df)
+            logger.info(f"信号已保存到 lab: {self.name}")
+
         return signal_df
 
     def run(self) -> pl.DataFrame:
@@ -421,7 +435,7 @@ def main():
 
     selector = XGBoostExtremaSelector(
         lab=lab,
-        name="300_xgb_extrema_stockai",
+        name="300_xgb_extrema",
         start="2026-04-14",
         end="2026-04-15",
         config=config,

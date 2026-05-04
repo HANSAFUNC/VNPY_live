@@ -1,6 +1,5 @@
 """StockAI 模型接口基类 - 完全复刻 FreqAI IFreqaiModel"""
 
-import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Optional, Tuple
@@ -8,10 +7,10 @@ from typing import Any, Optional, Tuple
 import numpy as np
 import polars as pl
 
+from vnpy.alpha.logger import logger
+
 from .data_drawer import StockaiDataDrawer
 from .data_kitchen import StockaiDataKitchen
-
-logger = logging.getLogger(__name__)
 
 
 class IStockaiModel(ABC):
@@ -83,27 +82,28 @@ class IStockaiModel(ABC):
         if feature_engineering_fn:
             df = feature_engineering_fn(df)
 
-        # 识别特征列和标签列
-        dk.find_features(df)
-        dk.find_labels(df)
-
-        if not dk.training_features_list:
-            raise ValueError(f"{pair}: 未找到特征列（需要%-前缀）")
-        if not dk.label_list:
-            raise ValueError(f"{pair}: 未找到标签列（需要&-前缀）")
-
         # 检查是否需要训练
         if self.dd.should_retrain(pair):
             logger.info(f"{pair}: 开始训练新模型")
+            # 识别特征列和标签列
+            dk.find_features(df)
+            dk.find_labels(df)
+
+            if not dk.training_features_list:
+                raise ValueError(f"{pair}: 未找到特征列（需要%-前缀）")
+            if not dk.label_list:
+                raise ValueError(f"{pair}: 未找到标签列（需要&-前缀）")
+
             self.model = self.train(df, pair, dk)
-            # 生成时间戳并保存模型
-            from .utils import get_timestamp
-            timestamp = get_timestamp()
-            dk.set_paths(pair, timestamp)
-            self.dd.save_model(pair, self.model, timestamp)
+            # 注意：train 方法内部已调用 _save_model_and_pipelines 保存模型和管道
+            # 不需要再次调用 save_model
         else:
             logger.info(f"{pair}: 加载已有模型")
             self.model = self.dd.load_model(pair)
+            # 预测时需要加载元数据获取特征列表
+            self._load_metadata(pair, dk)
+            # 识别特征 (FreqAI 风格 - 但 filter_features 会使用 metadata 的特征列表)
+            dk.find_features(df)
 
         # 执行预测
         predictions_df, do_predict = self.predict(df, dk)
@@ -233,29 +233,60 @@ class IStockaiModel(ABC):
         """
         定义特征处理管道 - 子类可覆盖
 
-        默认管道: VarianceThreshold -> MinMaxScaler
+        使用 datasieve Pipeline - 复刻 FreqAI
         """
-        from sklearn.pipeline import Pipeline
+        import datasieve.transforms as ds
+        from datasieve.pipeline import Pipeline
+        from datasieve.transforms import SKLearnWrapper
         from sklearn.preprocessing import MinMaxScaler
-        from sklearn.feature_selection import VarianceThreshold
 
         return Pipeline([
-            ("variance_threshold", VarianceThreshold(threshold=0)),
-            ("scaler", MinMaxScaler(feature_range=(-1, 1))),
+            ("variance_threshold", ds.VarianceThreshold(threshold=0)),
+            ("scaler", SKLearnWrapper(MinMaxScaler(feature_range=(-1, 1)))),
         ])
 
     def define_label_pipeline(self) -> Any:
         """
         定义标签处理管道 - 子类可覆盖
 
-        默认: MinMaxScaler
+        使用 datasieve Pipeline - 复刻 FreqAI
         """
-        from sklearn.pipeline import Pipeline
+        import datasieve.transforms as ds
+        from datasieve.pipeline import Pipeline
+        from datasieve.transforms import SKLearnWrapper
         from sklearn.preprocessing import MinMaxScaler
 
         return Pipeline([
-            ("scaler", MinMaxScaler(feature_range=(-1, 1))),
+            ("scaler", SKLearnWrapper(MinMaxScaler(feature_range=(-1, 1)))),
         ])
+
+    def _load_metadata(self, pair: str, dk: StockaiDataKitchen) -> None:
+        """
+        从元数据加载特征列表和标签列表
+
+        参数:
+            pair: 股票代码
+            dk: 数据厨房实例
+        """
+        if pair not in self.dd.pair_dict:
+            raise ValueError(f"未找到 {pair} 的模型元数据")
+
+        filename = self.dd.pair_dict[pair]["model_filename"]
+        model_path = self.dd.full_path / filename
+
+        # 加载元数据
+        metadata_path = model_path / "metadata.json"
+        if metadata_path.exists():
+            import json
+            with open(metadata_path, "r", encoding="utf-8") as f:
+                metadata = json.load(f)
+            dk.training_features_list = metadata.get("training_features_list", [])
+            dk.label_list = metadata.get("label_list", [])
+            logger.info(
+                f"{pair}: 从元数据加载了 {len(dk.training_features_list)} 个特征"
+            )
+        else:
+            raise ValueError(f"{pair}: 未找到 metadata.json")
 
     def _attach_predictions(
         self,
@@ -264,6 +295,10 @@ class IStockaiModel(ABC):
         dk: StockaiDataKitchen,
     ) -> pl.DataFrame:
         """将预测结果合并到原始 DataFrame"""
+        # 删除原始标签列（如果存在），避免与预测结果列名冲突
+        label_cols = dk.label_list if dk.label_list else []
+        df_cleaned = df.drop(label_cols) if label_cols else df
+
         # 根据 datetime 合并
-        result = df.join(predictions, on="datetime", how="left")
+        result = df_cleaned.join(predictions, on="datetime", how="left")
         return result

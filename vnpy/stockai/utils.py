@@ -101,6 +101,22 @@ def create_full_timerange(
     backtest_end: str,
     train_period_days: int,
 ) -> tuple[str, str]:
-    start_dt = datetime.strptime(backtest_start, "%Y%m%d")
+    """
+    创建完整时间范围（包含训练前置期）
+
+    Args:
+        backtest_start: 回测开始日期 (YYYY-MM-DD 或 YYYYMMDD)
+        backtest_end: 回测结束日期 (YYYY-MM-DD 或 YYYYMMDD)
+        train_period_days: 训练期天数
+
+    Returns:
+        (full_start, backtest_end) 完整时间范围 (YYYY-MM-DD 格式)
+    """
+    # 支持两种日期格式
+    if "-" in backtest_start:
+        start_dt = datetime.strptime(backtest_start, "%Y-%m-%d")
+    else:
+        start_dt = datetime.strptime(backtest_start, "%Y%m%d")
+
     full_start = start_dt - timedelta(days=train_period_days)
-    return full_start.strftime("%Y%m%d"), backtest_end
+    return full_start.strftime("%Y-%m-%d"), backtest_end

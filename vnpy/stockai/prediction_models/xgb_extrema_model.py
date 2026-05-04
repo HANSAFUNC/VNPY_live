@@ -1,16 +1,15 @@
 """StockAI XGBoost 极值预测模型 - 完全复刻 FreqAI XGBoostRegressor"""
 
-import logging
 from typing import Any, Tuple
 
 import numpy as np
 import polars as pl
 from xgboost import XGBRegressor
 
+from vnpy.alpha.logger import logger
+
 from ..base_models.base_regression_model import BaseRegressionModel
 from ..data_kitchen import StockaiDataKitchen
-
-logger = logging.getLogger(__name__)
 
 
 class XGBoostExtremaModel(BaseRegressionModel):
@@ -54,10 +53,18 @@ class XGBoostExtremaModel(BaseRegressionModel):
 
         model = XGBRegressor(**params)
 
+        # 检查训练数据
+        logger.info(f"XGBoost 训练数据: X_train shape={X_train.shape}, y_train range=[{np.min(y_train):.4f}, {np.max(y_train):.4f}]")
+        if np.isnan(X_train).any() or np.isinf(X_train).any():
+            logger.error(f"XGBoost 训练特征包含 NaN/inf: {np.isnan(X_train).sum()} NaN, {np.isinf(X_train).sum()} inf")
+        if np.isnan(y_train).any() or np.isinf(y_train).any():
+            logger.error(f"XGBoost 训练标签包含 NaN/inf: {np.isnan(y_train).sum()} NaN, {np.isinf(y_train).sum()} inf")
+
         # 如果有测试集，使用早停
         if len(data_dictionary.get("test_features", [])) > 0:
             X_test = data_dictionary["test_features"]
             y_test = data_dictionary["test_labels"]
+            logger.info(f"XGBoost 测试数据: X_test shape={X_test.shape}")
             model.fit(
                 X=X_train, y=y_train,
                 eval_set=[(X_test, y_test)],
