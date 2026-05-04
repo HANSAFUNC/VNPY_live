@@ -1,30 +1,27 @@
-"""StockAI 数据厨房 - 单只股票数据管理"""
+"""StockAI 数据厨房 - 完全复刻 FreqAI FreqaiDataKitchen"""
 
 import logging
-from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional, Type
+from typing import Any, Optional
 
 import numpy as np
 import polars as pl
 from sklearn.model_selection import train_test_split
-
-from vnpy.trader.constant import Interval
 
 logger = logging.getLogger(__name__)
 
 
 class StockaiDataKitchen:
     """
-    单只股票数据管理单元
+    单只股票数据管理单元 - 完全复刻 FreqAI FreqaiDataKitchen
 
     职责:
-    - 加载和管理一只股票的数据
-    - 过滤特征列（%-前缀）和标签列（&-前缀）
-    - 分割训练集和测试集
-    - 管理特征管道和标签管道
+    - 识别特征列 (%-前缀) 和标签列 (&-前缀)
+    - 训练/测试数据分割
+    - 特征/标签管道管理
+    - 数据字典管理 (data_dictionary)
 
-    对应 FreqAI 的 FreqaiDataKitchen 类
+    注意: 数据加载由策略层完成，本类只负责管理已加载的数据
     """
 
     def __init__(self, config: dict, pair: str, lab: Any):
@@ -34,17 +31,19 @@ class StockaiDataKitchen:
         参数:
             config: 配置字典
             pair: 股票代码
-            lab: AlphaLabV2 实例
+            lab: AlphaLabV2 实例 (仅用于获取路径等元信息)
         """
         self.config = config
         self.pair = pair
         self.lab = lab
 
         # 路径
-        self.data_path = Path()
+        self.data_path: Path = Path()
 
-        # 数据存储
+        # 数据字典 - 存储训练/测试数据
         self.data_dictionary: dict[str, Any] = {}
+
+        # 完整数据 (由外部传入)
         self.full_df: pl.DataFrame = pl.DataFrame()
 
         # 管道对象
@@ -65,66 +64,27 @@ class StockaiDataKitchen:
         # 额外数据存储
         self.data: dict[str, Any] = {"extra_returns_per_train": {}}
 
-    def load_data(
-        self,
-        start: str,
-        end: str,
-        train_period_days: int = 300,
-    ) -> pl.DataFrame:
+        logger.debug(f"数据厨房初始化: {pair}")
+
+    def find_features(self, df: pl.DataFrame) -> None:
         """
-        从 lab 加载数据
+        识别特征列 - 列名以 %- 开头
 
         参数:
-            start: 测试期开始日期
-            end: 测试期结束日期
-            train_period_days: 训练期天数（从start往前推）
-
-        返回:
-            加载的DataFrame
+            df: 已计算特征的 DataFrame
         """
-        # 计算时间段
-        start_dt = datetime.strptime(start, "%Y-%m-%d")
-        train_start_dt = start_dt - timedelta(days=train_period_days)
-        train_start = train_start_dt.strftime("%Y-%m-%d")
+        self.training_features_list = [c for c in df.columns if c.startswith("%-")]
+        logger.info(f"{self.pair}: 识别到 {len(self.training_features_list)} 个特征")
 
-        self.train_period = (train_start, start)
-        self.test_period = (start, end)
+    def find_labels(self, df: pl.DataFrame) -> None:
+        """
+        识别标签列 - 列名以 & 开头
 
-        # 从 lab 加载数据
-        # 优先使用 config 中的 interval，否则尝试从 lab 获取
-        interval = self.config.get("interval", "d")
-        if hasattr(self.lab, 'interval'):
-            interval = self.lab.interval
-
-        # 确保 interval 是 Interval 枚举类型
-        if isinstance(interval, str):
-            interval_map = {
-                "d": Interval.DAILY,
-                "daily": Interval.DAILY,
-                "1m": Interval.MINUTE,
-                "minute": Interval.MINUTE,
-                "1h": Interval.HOUR,
-                "hour": Interval.HOUR,
-                "w": Interval.WEEKLY,
-                "weekly": Interval.WEEKLY,
-                "tick": Interval.TICK,
-            }
-            interval = interval_map.get(interval.lower(), Interval.DAILY)
-
-        df = self.lab.load_bars_df(
-            vt_symbols=[self.pair],
-            interval=interval,
-            start=train_start,
-            end=end,
-        )
-
-        if df is None or len(df) == 0:
-            raise ValueError(f"{self.pair}: 未能加载数据")
-
-        self.full_df = df
-        logger.info(f"{self.pair}: 已加载 {len(df)} 行数据")
-
-        return df
+        参数:
+            df: 已计算标签的 DataFrame
+        """
+        self.label_list = [c for c in df.columns if c.startswith("&")]
+        logger.info(f"{self.pair}: 识别到 {len(self.label_list)} 个标签")
 
     def filter_features(
         self,
@@ -134,37 +94,44 @@ class StockaiDataKitchen:
         """
         过滤特征和标签
 
-        特征列: %-前缀
-        标签列: &-前缀
-
         参数:
-            df: 输入DataFrame
-            training_filter: 是否用于训练过滤
+            df: 输入 DataFrame (必须已包含特征和标签)
+            training_filter: 是否用于训练过滤 (保留用于 future 扩展)
 
         返回:
-            (特征DataFrame, 标签DataFrame)
+            (features_df, labels_df)
         """
-        # 识别列
-        feature_cols = [c for c in df.columns if c.startswith("%-")]
-        label_cols = [c for c in df.columns if c.startswith("&")]
+        if not self.training_features_list:
+            raise ValueError("未找到特征列（需要%-前缀），请先调用 find_features()")
+        if not self.label_list:
+            raise ValueError("未找到标签列（需要&-前缀），请先调用 find_labels()")
 
-        if not feature_cols:
-            raise ValueError("未找到特征列（需要%-前缀）")
-        if not label_cols:
-            raise ValueError("未找到标签列（需要&-前缀）")
+        # 提取特征
+        features_df = df.select(self.training_features_list)
 
-        self.training_features_list = feature_cols
-        self.label_list = label_cols
-
-        # 提取数据
-        features_df = df.select(feature_cols)
-        labels_df = df.select(label_cols)
+        # 提取标签 (取第一个标签列用于训练)
+        if len(self.label_list) == 1:
+            labels_df = df.select(self.label_list)
+        else:
+            # 多标签情况，取第一个
+            labels_df = df.select([self.label_list[0]])
+            logger.warning(f"{self.pair}: 多个标签列，仅使用 {self.label_list[0]}")
 
         # 处理缺失值
         features_df = features_df.fill_null(0.0)
         labels_df = labels_df.fill_null(0.0)
 
-        logger.info(f"{self.pair}: 特征 {len(feature_cols)} 列，标签 {len(label_cols)} 列")
+        # 移除包含 NaN/inf 的行
+        features_np = features_df.to_numpy()
+        labels_np = labels_df.to_numpy().ravel()
+
+        valid_mask = np.isfinite(features_np).all(axis=1) & np.isfinite(labels_np)
+        n_invalid = len(valid_mask) - valid_mask.sum()
+        if n_invalid > 0:
+            logger.warning(f"{self.pair}: 移除 {n_invalid} 行包含无效值的样本")
+
+        features_df = features_df.filter(pl.Series(valid_mask))
+        labels_df = labels_df.filter(pl.Series(valid_mask))
 
         return features_df, labels_df
 
@@ -177,11 +144,15 @@ class StockaiDataKitchen:
         分割训练集和测试集
 
         参数:
-            features: 特征DataFrame
-            labels: 标签DataFrame
+            features: 特征 DataFrame
+            labels: 标签 DataFrame
 
         返回:
-            包含训练/测试数据的字典
+            data_dictionary 包含:
+                - train_features: 训练特征 (numpy)
+                - train_labels: 训练标签 (numpy)
+                - test_features: 测试特征 (numpy)
+                - test_labels: 测试标签 (numpy)
         """
         # 转换为 numpy
         X = features.to_numpy()
@@ -198,7 +169,7 @@ class StockaiDataKitchen:
             )
         else:
             X_train, y_train = X, y
-            X_test, y_test = np.array([]), np.array([])
+            X_test, y_test = np.array([]).reshape(0, X.shape[1]), np.array([])
 
         self.data_dictionary = {
             "train_features": X_train,
@@ -207,6 +178,79 @@ class StockaiDataKitchen:
             "test_labels": y_test,
         }
 
-        logger.info(f"{self.pair}: 训练集 {len(X_train)}，测试集 {len(X_test)}")
+        logger.info(
+            f"{self.pair}: 训练集 {len(X_train)} 样本，测试集 {len(X_test)} 样本"
+        )
 
         return self.data_dictionary
+
+    def set_paths(self, pair: str, timestamp: int) -> None:
+        """设置数据路径"""
+        safe_pair = pair.replace(".", "_")
+        self.model_filename = f"sub-train-{safe_pair}_{timestamp}"
+        self.data_path = Path(self.config.get("path", "./stockai_data")) / self.model_filename
+        self.data_path.mkdir(parents=True, exist_ok=True)
+
+    def build_data_dictionary(
+        self,
+        df: pl.DataFrame,
+        dk: "StockaiDataKitchen",
+    ) -> dict[str, Any]:
+        """
+        构建数据字典 - 用于训练
+
+        参数:
+            df: 已包含特征和标签的 DataFrame
+            dk: 数据厨房实例
+
+        返回:
+            data_dictionary
+        """
+        # 确保已识别特征和标签
+        if not self.training_features_list:
+            self.find_features(df)
+        if not self.label_list:
+            self.find_labels(df)
+
+        # 过滤特征和标签
+        features_df, labels_df = self.filter_features(df)
+
+        # 分割训练/测试集
+        data_dict = self.make_train_test_datasets(features_df, labels_df)
+
+        return data_dict
+
+    def get_predictions_to_append(
+        self,
+        pred_df: pl.DataFrame,
+        do_preds: np.ndarray,
+        original_df: pl.DataFrame,
+    ) -> pl.DataFrame:
+        """
+        构建要追加到历史预测的 DataFrame
+
+        参数:
+            pred_df: 预测结果
+            do_preds: 预测有效性标记
+            original_df: 原始数据
+
+        返回:
+            格式化后的预测 DataFrame
+        """
+        result = pred_df.with_columns([
+            pl.Series("do_predict", do_preds),
+            pl.lit(self.pair).alias("pair"),
+        ])
+        return result
+
+    def append_predictions(self, predictions: pl.DataFrame) -> None:
+        """追加预测到内部存储 (用于回测时累积预测)"""
+        if "predictions" not in self.data:
+            self.data["predictions"] = []
+        self.data["predictions"].append(predictions)
+
+    def get_full_predictions(self) -> Optional[pl.DataFrame]:
+        """获取累积的所有预测"""
+        if "predictions" not in self.data or not self.data["predictions"]:
+            return None
+        return pl.concat(self.data["predictions"])

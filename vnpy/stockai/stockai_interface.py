@@ -1,10 +1,11 @@
-"""StockAI 模型接口基类"""
+"""StockAI 模型接口基类 - 完全复刻 FreqAI IFreqaiModel"""
 
 import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Tuple
 
+import numpy as np
 import polars as pl
 
 from .data_drawer import StockaiDataDrawer
@@ -15,14 +16,12 @@ logger = logging.getLogger(__name__)
 
 class IStockaiModel(ABC):
     """
-    所有StockAI模型的抽象基类
-
-    对应 FreqAI 的 IFreqaiModel 类
+    StockAI 模型接口 - 完全复刻 FreqAI IFreqaiModel
 
     职责:
-    - 定义训练和预测的抽象接口
-    - 管理全局 DataDrawer（持久化存储）
-    - 创建 DataKitchen（临时数据管理）
+    - 管理训练和预测流程
+    - 协调 DataDrawer (持久化存储) 和 DataKitchen (临时数据)
+    - 特征计算在策略层完成，本层只识别特征列 (%-前缀) 和标签列 (&-前缀)
     """
 
     def __init__(self, config: dict, lab: Any):
@@ -31,19 +30,19 @@ class IStockaiModel(ABC):
 
         参数:
             config: 配置字典
-            lab: AlphaLabV2 实例
+            lab: AlphaLabV2 实例 (数据源)
         """
         self.config = config
         self.lab = lab
 
-        # 设置路径
+        # 路径设置
         self.full_path = Path(config.get("path", "./stockai_data"))
         self.full_path.mkdir(parents=True, exist_ok=True)
 
-        # 初始化全局数据抽屉
+        # 全局数据抽屉 (持久化存储)
         self.dd = StockaiDataDrawer(self.full_path, config)
 
-        # 当前数据厨房（临时）
+        # 当前数据厨房 (临时，每次训练/预测时创建)
         self.dk: Optional[StockaiDataKitchen] = None
 
         # 模型引用
@@ -51,12 +50,122 @@ class IStockaiModel(ABC):
 
         # 特征参数
         self.ft_params = config.get("feature_parameters", {})
+        self.data_split_params = config.get("data_split_parameters", {})
+        self.model_training_params = config.get("model_training_parameters", {})
 
-        logger.info(f"模型接口初始化完成，路径: {self.full_path}")
+        # 运行模式
+        self.live = False
 
-    def get_data_kitchen(self, pair: str) -> StockaiDataKitchen:
-        """获取或创建数据厨房"""
-        return StockaiDataKitchen(self.config, pair, self.lab)
+        logger.info(f"StockAI 模型接口初始化完成，路径: {self.full_path}")
+
+    def start(
+        self,
+        df: pl.DataFrame,
+        pair: str,
+        feature_engineering_fn: Optional[callable] = None,
+    ) -> pl.DataFrame:
+        """
+        主入口 - 从策略层接收数据，执行训练/预测
+
+        参数:
+            df: 策略层传入的原始数据 (OHLCV)，策略层已通过 feature_engineering_fn 计算特征
+            pair: 股票代码
+            feature_engineering_fn: 可选的特征计算函数
+
+        返回:
+            带预测结果的 DataFrame
+        """
+        # 创建数据厨房
+        dk = StockaiDataKitchen(self.config, pair, self.lab)
+        self.dk = dk
+
+        # 如果提供了特征计算函数，执行特征计算
+        if feature_engineering_fn:
+            df = feature_engineering_fn(df)
+
+        # 识别特征列和标签列
+        dk.find_features(df)
+        dk.find_labels(df)
+
+        if not dk.training_features_list:
+            raise ValueError(f"{pair}: 未找到特征列（需要%-前缀）")
+        if not dk.label_list:
+            raise ValueError(f"{pair}: 未找到标签列（需要&-前缀）")
+
+        # 检查是否需要训练
+        if self.dd.should_retrain(pair):
+            logger.info(f"{pair}: 开始训练新模型")
+            self.model = self.train(df, pair, dk)
+            self.dd.save_model(pair, self.model, dk)
+        else:
+            logger.info(f"{pair}: 加载已有模型")
+            self.model = self.dd.load_model(pair)
+
+        # 执行预测
+        predictions = self.predict(df, dk)
+
+        # 合并预测结果到原始 df
+        result_df = self._attach_predictions(df, predictions, dk)
+
+        return result_df
+
+    def start_backtesting(
+        self,
+        df: pl.DataFrame,
+        pair: str,
+        train_start: str,
+        train_end: str,
+        predict_start: str,
+        predict_end: str,
+        feature_engineering_fn: Optional[callable] = None,
+    ) -> pl.DataFrame:
+        """
+        回测入口 - 滑动窗口训练/预测
+
+        参数:
+            df: 策略层传入的完整数据 (包含特征)
+            pair: 股票代码
+            train_start/train_end: 训练期
+            predict_start/predict_end: 预测期
+            feature_engineering_fn: 特征计算函数
+
+        返回:
+            预测期带预测结果的 DataFrame
+        """
+        # 创建数据厨房
+        dk = StockaiDataKitchen(self.config, pair, self.lab)
+        self.dk = dk
+
+        # 特征计算
+        if feature_engineering_fn:
+            df = feature_engineering_fn(df)
+
+        # 识别特征和标签
+        dk.find_features(df)
+        dk.find_labels(df)
+
+        # 分割训练集和预测集
+        train_df = df.filter(
+            (pl.col("datetime") >= train_start) & (pl.col("datetime") < train_end)
+        )
+        predict_df = df.filter(
+            (pl.col("datetime") >= predict_start) & (pl.col("datetime") <= predict_end)
+        )
+
+        if len(train_df) == 0:
+            logger.warning(f"{pair}: 训练集为空")
+            return predict_df
+
+        # 训练
+        self.model = self.train(train_df, pair, dk)
+
+        # 预测
+        predictions = self.predict(predict_df, dk)
+
+        # 合并结果
+        result_df = self._attach_predictions(predict_df, predictions, dk)
+
+        return result_df
 
     @abstractmethod
     def train(
@@ -66,10 +175,10 @@ class IStockaiModel(ABC):
         dk: StockaiDataKitchen,
     ) -> Any:
         """
-        训练模型（子类必须实现）
+        训练模型 - 子类必须实现
 
         参数:
-            df: 训练数据
+            df: 已包含特征列 (%-前缀) 和标签列 (&-前缀) 的训练数据
             pair: 股票代码
             dk: 数据厨房
 
@@ -79,89 +188,78 @@ class IStockaiModel(ABC):
         pass
 
     @abstractmethod
+    def fit(
+        self,
+        data_dictionary: dict[str, Any],
+        dk: StockaiDataKitchen,
+    ) -> Any:
+        """
+        实际模型拟合 - 子类必须实现
+
+        参数:
+            data_dictionary: 包含 train_features, train_labels, test_features, test_labels 的字典
+            dk: 数据厨房
+
+        返回:
+            拟合好的模型
+        """
+        pass
+
+    @abstractmethod
     def predict(
         self,
         df: pl.DataFrame,
         dk: StockaiDataKitchen,
-    ) -> pl.DataFrame:
+    ) -> Tuple[pl.DataFrame, np.ndarray]:
         """
-        预测（子类必须实现）
+        预测 - 子类必须实现
 
         参数:
-            df: 输入数据
+            df: 已包含特征列的预测数据
             dk: 数据厨房
 
         返回:
-            预测结果DataFrame
+            (predictions_df, do_predict)
+            - predictions_df: 预测结果 DataFrame
+            - do_predict: numpy 数组，指示哪些位置可以预测 (1) 或需要跳过 (0)
         """
         pass
 
-    def start_training(
-        self,
-        pair: str,
-        start: str,
-        end: str,
-    ) -> Any:
+    def define_data_pipeline(self) -> Any:
         """
-        高层训练入口
+        定义特征处理管道 - 子类可覆盖
 
-        参数:
-            pair: 股票代码
-            start: 测试期开始
-            end: 测试期结束
-
-        返回:
-            训练好的模型
+        默认管道: VarianceThreshold -> MinMaxScaler
         """
-        # 创建数据厨房
-        dk = self.get_data_kitchen(pair)
-        self.dk = dk
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import MinMaxScaler
+        from sklearn.feature_selection import VarianceThreshold
 
-        # 加载数据
-        df = dk.load_data(
-            start=start,
-            end=end,
-            train_period_days=self.config.get("train_period_days", 300),
-        )
+        return Pipeline([
+            ("variance_threshold", VarianceThreshold(threshold=0)),
+            ("scaler", MinMaxScaler(feature_range=(-1, 1))),
+        ])
 
-        # 训练
-        model = self.train(df, pair, dk)
-        self.model = model
+    def define_label_pipeline(self) -> Any:
+        """
+        定义标签处理管道 - 子类可覆盖
 
-        return model
+        默认: MinMaxScaler
+        """
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import MinMaxScaler
 
-    def start_prediction(
+        return Pipeline([
+            ("scaler", MinMaxScaler(feature_range=(-1, 1))),
+        ])
+
+    def _attach_predictions(
         self,
-        pair: str,
-        start: str,
-        end: str,
+        df: pl.DataFrame,
+        predictions: pl.DataFrame,
+        dk: StockaiDataKitchen,
     ) -> pl.DataFrame:
-        """
-        高层预测入口
-
-        参数:
-            pair: 股票代码
-            start: 预测期开始
-            end: 预测期结束
-
-        返回:
-            预测结果
-        """
-        # 创建数据厨房
-        dk = self.get_data_kitchen(pair)
-        self.dk = dk
-
-        # 加载数据
-        df = dk.load_data(
-            start=start,
-            end=end,
-            train_period_days=0,  # 预测不需要训练数据
-        )
-
-        # 预测
-        predictions = self.predict(df, dk)
-
-        # 保存到历史
-        self.dd.append_predictions(pair, predictions)
-
-        return predictions
+        """将预测结果合并到原始 DataFrame"""
+        # 根据 datetime 合并
+        result = df.join(predictions, on="datetime", how="left")
+        return result
