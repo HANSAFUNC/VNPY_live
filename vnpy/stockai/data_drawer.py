@@ -1,6 +1,5 @@
 """StockAI 数据抽屉 - 全局持久化存储管理"""
 
-import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -8,9 +7,9 @@ from typing import Any, Optional
 import joblib
 import polars as pl
 
-from .utils import get_timestamp, load_json, load_parquet, save_json, save_parquet
+from vnpy.alpha.logger import logger
 
-logger = logging.getLogger(__name__)
+from .utils import get_timestamp, load_json, load_parquet, save_json, save_parquet
 
 
 class StockaiDataDrawer:
@@ -46,6 +45,9 @@ class StockaiDataDrawer:
         # 文件路径
         self.historic_predictions_path = full_path / "historic_predictions.parquet"
         self.pair_dictionary_path = full_path / "pair_dictionary.json"
+
+        # 回测实时模型模式
+        self.backtest_live_models = config.get("backtest_live_models", False)
 
         # 从磁盘加载已有数据
         self._load_from_disk()
@@ -200,6 +202,10 @@ class StockaiDataDrawer:
         """
         if pair not in self.pair_dict:
             return True
+
+        if self.backtest_live_models:
+            logger.info(f"{pair}: 回测实时模型模式，跳过重新训练")
+            return False
 
         last_trained = self.pair_dict[pair].get("trained_timestamp", 0)
         age_days = (get_timestamp() - last_trained) / 86400
