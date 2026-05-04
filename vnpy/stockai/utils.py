@@ -1,7 +1,9 @@
 """StockAI 工具函数模块"""
 
+import calendar
 import logging
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -66,3 +68,39 @@ def query_by_time(
     if end:
         df = df.filter(pl.col("datetime") <= end)
     return df.sort("datetime")
+
+
+@dataclass
+class TimeRange:
+    startts: int = 0
+    stopts: int = 0
+
+    @property
+    def timerange_str(self) -> str:
+        start = datetime.utcfromtimestamp(self.startts).strftime("%Y%m%d")
+        end = datetime.utcfromtimestamp(self.stopts).strftime("%Y%m%d")
+        return f"{start}-{end}"
+
+    @classmethod
+    def parse_timerange(cls, timerange: str) -> "TimeRange":
+        parts = timerange.split("-")
+        if len(parts) != 2:
+            raise ValueError(f"Invalid timerange format: {timerange}, expected 'YYYYMMDD-YYYYMMDD'")
+
+        start_dt = datetime.strptime(parts[0], "%Y%m%d")
+        end_dt = datetime.strptime(parts[1], "%Y%m%d")
+
+        return cls(
+            startts=calendar.timegm(start_dt.timetuple()),
+            stopts=calendar.timegm(end_dt.timetuple()),
+        )
+
+
+def create_full_timerange(
+    backtest_start: str,
+    backtest_end: str,
+    train_period_days: int,
+) -> tuple[str, str]:
+    start_dt = datetime.strptime(backtest_start, "%Y%m%d")
+    full_start = start_dt - timedelta(days=train_period_days)
+    return full_start.strftime("%Y%m%d"), backtest_end
