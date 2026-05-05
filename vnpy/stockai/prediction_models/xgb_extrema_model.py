@@ -71,10 +71,9 @@ class XGBoostExtremaModel(BaseRegressionModel):
         )
         time_spent = time.time() - start
 
-        # 保存训练样本数用于 fit_live_predictions 预热计算
-        # 存储训练样本数（不是模型本身）
-        self.dd.data["train_sample_counts"] = self.dd.data.get("train_sample_counts", {})
-        self.dd.data["train_sample_counts"][dk.pair] = len(X)
+        # 记录训练样本数用于 fit_live_predictions 预热计算
+        # 使用单独的属性存储，不占用 model_return_values
+        self.dd.pair_dict[dk.pair]["train_samples"] = len(X)
 
         # 记录训练时间
         self.dd.update_metric_tracker("fit_time", time_spent, dk.pair)
@@ -87,10 +86,11 @@ class XGBoostExtremaModel(BaseRegressionModel):
 
     def _get_init_model(self, pair: str):
         """获取增量训练的初始模型"""
-        # 从 model_dictionary 获取之前的模型用于继续训练
+        # 检查内存中是否有该pair的模型缓存
         if pair in self.dd.pair_dict:
             filename = self.dd.pair_dict[pair].get("model_filename", "")
             if filename and filename in self.dd.model_dictionary:
+                logger.info(f"{pair}: 找到已缓存的模型用于增量训练")
                 return self.dd.model_dictionary[filename]
         return None
 
@@ -107,10 +107,9 @@ class XGBoostExtremaModel(BaseRegressionModel):
 
         # 初始化 exchange_candles（训练样本数）
         if not hasattr(self, 'exchange_candles'):
-            # 从 data 中获取训练样本数
-            train_counts = self.dd.data.get("train_sample_counts", {})
-            if pair in train_counts:
-                self.exchange_candles = train_counts[pair]
+            # 从 pair_dict 获取训练样本数
+            if pair in self.dd.pair_dict:
+                self.exchange_candles = self.dd.pair_dict[pair].get("train_samples", 0)
             else:
                 self.exchange_candles = 0
 
