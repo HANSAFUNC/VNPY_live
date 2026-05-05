@@ -184,9 +184,12 @@ class StockaiDataKitchen:
                 labels_df = pl.DataFrame()
                 combined_drop = drop_index
 
-            # 记录训练日期
+            # 记录训练日期（可选，用于调试）
             if "datetime" in unfiltered_df.columns:
-                self.train_dates = unfiltered_df.filter(~pl.Series(combined_drop))["datetime"]
+                try:
+                    self.train_dates = unfiltered_df.filter(~pl.Series(combined_drop))["datetime"]
+                except Exception:
+                    self.train_dates = pl.Series()
 
             # 过滤 DataFrame (保留 combined_drop == False 的行)
             keep_mask = ~pl.Series(combined_drop)
@@ -210,9 +213,9 @@ class StockaiDataKitchen:
 
         else:
             # === 预测模式 ===
-            # 用 0 填充 NaN
+            # 用 0 填充 NaN/inf (Polars: fill_null 处理 null，nan 需要另外处理)
             filtered_df = filtered_df.with_columns([
-                pl.col(c).fill_null(0.0).alias(c)
+                pl.col(c).fill_null(0.0).fill_nan(0.0).alias(c)
                 for c in filtered_df.columns
             ])
 
@@ -386,19 +389,28 @@ class StockaiDataKitchen:
         training_ranges: list[tuple[str, str]] = []
         backtesting_ranges: list[tuple[str, str]] = []
 
-        train_start = start
+        # 计算滑动步长：每次向前滑动 backtest_period_days
+        step_days = backtest_period_days
+
+        current_train_start = start
         while True:
-            train_end = train_start + timedelta(days=train_period_days)
+            train_end = current_train_start + timedelta(days=train_period_days)
             bt_start = train_end
             bt_end = bt_start + timedelta(days=backtest_period_days)
 
-            if bt_end > end:
+            # 如果预测期超出数据范围，结束
+            if bt_start >= end:
                 break
 
-            training_ranges.append((train_start.strftime(fmt), train_end.strftime(fmt)))
+            # 如果预测期部分超出，仍然保留（截断到 end）
+            if bt_end > end:
+                bt_end = end
+
+            training_ranges.append((current_train_start.strftime(fmt), train_end.strftime(fmt)))
             backtesting_ranges.append((bt_start.strftime(fmt), bt_end.strftime(fmt)))
 
-            train_start = bt_start
+            # 滑动到下一个窗口
+            current_train_start = current_train_start + timedelta(days=step_days)
 
         return training_ranges, backtesting_ranges
 

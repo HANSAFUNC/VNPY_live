@@ -1,18 +1,15 @@
 """StockAI XGBoost 极值预测模型 - 完全复刻 FreqAI XGBoostRegressorQuickAdapterV3"""
 
-import logging
+
 import time
 from typing import Any, Tuple
-
 import numpy as np
 import polars as pl
 import scipy as spy
 from xgboost import XGBRegressor
-
+from vnpy.alpha.logger import logger
 from ..base_models.base_regression_model import BaseRegressionModel
 from ..data_kitchen import StockaiDataKitchen
-
-logger = logging.getLogger(__name__)
 
 
 class XGBoostExtremaModel(BaseRegressionModel):
@@ -60,7 +57,7 @@ class XGBoostExtremaModel(BaseRegressionModel):
         xgb_model = self._get_init_model(dk.pair)
 
         # 模型参数
-        model = XGBRegressor(**self.model_training_parameters)
+        model = XGBRegressor(**self.model_training_params)
 
         # 训练
         start = time.time()
@@ -73,6 +70,11 @@ class XGBoostExtremaModel(BaseRegressionModel):
             verbose=False,
         )
         time_spent = time.time() - start
+
+        # 保存训练样本数用于 fit_live_predictions 预热计算
+        if not hasattr(self.dd, 'model_return_values'):
+            self.dd.model_return_values = {}
+        self.dd.model_return_values[dk.pair] = pl.DataFrame({"train": range(len(X))})
 
         # 记录训练时间
         self.dd.update_metric_tracker("fit_time", time_spent, dk.pair)
@@ -102,18 +104,23 @@ class XGBoostExtremaModel(BaseRegressionModel):
         warmed_up = True
         num_candles = self.config.get("fit_live_predictions_candles", 100)
 
-        # 检查是否预热完成
+        # 初始化 exchange_candles（训练样本数）
         if not hasattr(self, 'exchange_candles'):
-            self.exchange_candles = len(self.dd.historic_predictions.get(pair, pl.DataFrame()))
+            # 从 model_return_values 获取训练样本数
+            if hasattr(self.dd, 'model_return_values') and pair in self.dd.model_return_values:
+                self.exchange_candles = len(self.dd.model_return_values[pair])
+            else:
+                self.exchange_candles = 0
 
         historic_df = self.dd.historic_predictions.get(pair)
         if historic_df is None or len(historic_df) == 0:
-            logger.warning(f"{pair}: 无历史预测数据")
+            logger.info(f"{pair}: 实时预测预热中，历史数据 0/{num_candles + self.exchange_candles}")
             warmed_up = False
         else:
+            # FreqAI 风格：需要 num_candles + exchange_candles 条数据
             candle_diff = len(historic_df) - (num_candles + self.exchange_candles)
             if candle_diff < 0:
-                logger.warning(f"{pair}: 实时预测预热中，还需 {abs(candle_diff)} 根K线")
+                logger.info(f"{pair}: 实时预测预热中，还需 {abs(candle_diff)} 根K线 (当前 {len(historic_df)}/{num_candles + self.exchange_candles})")
                 warmed_up = False
 
         if historic_df is not None and len(historic_df) > 0:
@@ -125,7 +132,7 @@ class XGBoostExtremaModel(BaseRegressionModel):
             min_pred = {}
 
             for col in label_cols:
-                if pred_df_full[col].dtype in [pl.Float32, pl.Float64, pl.Float]:
+                if pred_df_full[col].dtype in [pl.Float32, pl.Float64]:
                     sorted_vals = pred_df_full[col].sort(descending=True)
                     frequency = num_candles / (self.ft_params.get("label_period_candles", 10) * 2)
                     freq_int = max(1, int(frequency))
@@ -193,11 +200,55 @@ class XGBoostExtremaModel(BaseRegressionModel):
         返回:
             (predictions_df, do_predict)
         """
+ 
         # 调用基类的通用预测流程
         predictions_df, do_predict = super().predict(df, dk)
 
+        # 调试：检查配置 - 直接打印整个config
+
+        fit_live = self.config.get('fit_live_predictions', False)
+ 
         # 可选：调用 fit_live_predictions 更新动态阈值
-        if self.config.get("fit_live_predictions", False):
+        if fit_live:
             self.fit_live_predictions(dk, dk.pair)
+
+        # 将 extra_returns_per_train 中的阈值和参数添加到预测结果
+        extra_returns = dk.data.get("extra_returns_per_train", {})
+        if extra_returns:
+            n_rows = len(predictions_df)
+            for col_name, value in extra_returns.items():
+                # 为每一行添加相同的阈值/参数值
+                predictions_df = predictions_df.with_columns([
+                    pl.lit(float(value)).alias(col_name)
+                ])
+            logger.debug(f"{dk.pair}: 已添加 {len(extra_returns)} 个 extra_returns 列")
+        else:
+            # 即使没有启用 fit_live_predictions，也添加默认阈值列
+            default_thresholds = {
+                "&s-maxima_sort_threshold": 2.0,
+                "&s-minima_sort_threshold": -2.0,
+                "DI_cutoff": 2.0,
+                "DI_value_param1": 0.0,
+                "DI_value_param2": 0.0,
+                "DI_value_param3": 0.0,
+            }
+            for col_name, value in default_thresholds.items():
+                predictions_df = predictions_df.with_columns([
+                    pl.lit(float(value)).alias(col_name)
+                ])
+            logger.debug(f"{dk.pair}: 已添加默认阈值列")
+
+        # 添加 DI_values (如果存在)
+        if hasattr(dk, 'DI_values') and dk.DI_values is not None:
+            if len(dk.DI_values) == len(predictions_df):
+                predictions_df = predictions_df.with_columns([
+                    pl.Series("DI_values", dk.DI_values)
+                ])
+
+        # 保存预测到历史 (用于 fit_live_predictions 累积数据)
+        hist_df = predictions_df.clone()
+        if "pair" not in hist_df.columns:
+            hist_df = hist_df.with_columns([pl.lit(dk.pair).alias("pair")])
+        self.dd.append_predictions(dk.pair, hist_df)
 
         return predictions_df, do_predict

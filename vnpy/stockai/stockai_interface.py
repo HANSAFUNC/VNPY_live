@@ -59,7 +59,8 @@ class IStockaiModel(ABC):
 
     def start(
         self,
-        df: pl.DataFrame,
+        train_df: pl.DataFrame,
+        predict_df: pl.DataFrame,
         pair: str,
         feature_engineering_fn: Optional[callable] = None,
     ) -> pl.DataFrame:
@@ -67,7 +68,8 @@ class IStockaiModel(ABC):
         主入口 - 从策略层接收数据，执行训练/预测
 
         参数:
-            df: 策略层传入的原始数据 (OHLCV)，策略层已通过 feature_engineering_fn 计算特征
+            train_df: 训练数据
+            predict_df: 预测数据
             pair: 股票代码
             feature_engineering_fn: 可选的特征计算函数
 
@@ -78,38 +80,44 @@ class IStockaiModel(ABC):
         dk = StockaiDataKitchen(self.config, pair, self.lab)
         self.dk = dk
 
-        # 如果提供了特征计算函数，执行特征计算
-        if feature_engineering_fn:
-            df = feature_engineering_fn(df)
-
         # 检查是否需要训练
         if self.dd.should_retrain(pair):
             logger.info(f"{pair}: 开始训练新模型")
+
+            # 如果提供了特征计算函数，执行特征计算
+            train_data = train_df
+            if feature_engineering_fn:
+                train_data = feature_engineering_fn(train_data)
+
             # 识别特征列和标签列
-            dk.find_features(df)
-            dk.find_labels(df)
+            dk.find_features(train_data)
+            dk.find_labels(train_data)
 
             if not dk.training_features_list:
                 raise ValueError(f"{pair}: 未找到特征列（需要%-前缀）")
             if not dk.label_list:
                 raise ValueError(f"{pair}: 未找到标签列（需要&-前缀）")
 
-            self.model = self.train(df, pair, dk)
-            # 注意：train 方法内部已调用 _save_model_and_pipelines 保存模型和管道
-            # 不需要再次调用 save_model
+            self.model = self.train(train_data, pair, dk)
         else:
             logger.info(f"{pair}: 加载已有模型")
             self.model = self.dd.load_model(pair)
             # 预测时需要加载元数据获取特征列表
             self._load_metadata(pair, dk)
-            # 识别特征 (FreqAI 风格 - 但 filter_features 会使用 metadata 的特征列表)
-            dk.find_features(df)
+
+        # 如果提供了特征计算函数，执行特征计算
+        predict_data = predict_df
+        if feature_engineering_fn:
+            predict_data = feature_engineering_fn(predict_data)
+
+        # 识别特征
+        dk.find_features(predict_data)
 
         # 执行预测
-        predictions_df, do_predict = self.predict(df, dk)
+        predictions_df, do_predict = self.predict(predict_data, dk)
 
-        # 合并预测结果到原始 df
-        result_df = self._attach_predictions(df, predictions_df, dk)
+        # 合并预测结果
+        result_df = self._attach_predictions(predict_data, predictions_df, dk)
 
         return result_df
 

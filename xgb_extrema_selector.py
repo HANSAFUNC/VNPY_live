@@ -33,7 +33,7 @@ LAB_PATH = SCRIPT_DIR / "lab"
 
 @dataclass
 class SelectorConfig:
-    """选股器配置"""
+    """选股器配置 - 支持 StockAI 高级功能"""
     # 数据参数
     top_n: int = 300
     train_period_days: int = 300
@@ -53,10 +53,52 @@ class SelectorConfig:
     # 批次处理
     data_batch_size: int = 50
 
+    # 滑动窗口回测参数
+    backtest_period_days: int = 1  # 每次预测未来N天
+
     # QuickAdapterV5 参数
     periods: list[int] = None
-    label_period_candles: int = 10
+    label_period_candles: int = 5
     include_shifted_candles: list[int] = None
+
+    # ===== StockAI 高级功能配置 =====
+
+    # 1. 近期样本加权 (set_weights_higher_recent)
+    # weight_factor > 0 时启用，值越大近期样本权重越高
+    use_weighted_training: bool = False
+    weight_factor: float = 1.0  # 衰减因子，推荐 0.5-2.0
+
+    # 2. PCA 降维
+    use_pca: bool = False
+    pca_n_components: float = 0.999  # 保留方差比例 (0.9-0.999)
+
+    # 3. SVM 异常值检测
+    use_svm_outlier_detection: bool = False
+    svm_nu: float = 0.01  # 异常值比例预期
+    svm_shuffle: bool = False
+
+    # 4. DI (Dissimilarity Index) 漂移检测
+    # DI_threshold > 0 时启用，值越大容忍度越高
+    di_threshold: float = 10  # 推荐 0 (禁用) 或 1.0-3.0
+
+    # 5. DBSCAN 异常值检测
+    use_dbscan_outlier_detection: bool = False
+    dbscan_eps: float = 0.5  # 邻域半径
+
+    # 6. 噪声注入 (数据增强)
+    noise_sigma: float = 0  # 噪声标准差，0 表示禁用，推荐 0.001-0.01
+
+    # 7. 回测实时模型模式
+    # True: 回测时复用已训练模型，不重新训练
+    backtest_live_models: bool = False
+
+    # 8. 重新训练间隔（天）
+    retrain_days: int = 5  # 每5天重新训练一次
+
+    # 9. 动态阈值计算 (fit_live_predictions)
+    # True: 根据历史预测自适应调整极值阈值
+    use_fit_live_predictions: bool = True
+    fit_live_predictions_candles: int = 20  # 历史预测样本数
 
     def __post_init__(self):
         if self.periods is None:
@@ -109,6 +151,21 @@ class XGBoostExtremaSelector:
                 "periods": self.config.periods,
                 "label_period_candles": self.config.label_period_candles,
                 "include_shifted_candles": self.config.include_shifted_candles,
+                # 近期样本加权
+                "weight_factor": self.config.weight_factor if self.config.use_weighted_training else 0,
+                # PCA 降维
+                "principal_component_analysis": self.config.use_pca,
+                "pca_n_components": self.config.pca_n_components,
+                # SVM 异常值检测
+                "use_SVM_to_remove_outliers": self.config.use_svm_outlier_detection,
+                "svm_params": {"nu": self.config.svm_nu, "shuffle": self.config.svm_shuffle},
+                # DI 漂移检测
+                "DI_threshold": self.config.di_threshold,
+                # DBSCAN 异常值检测
+                "use_DBSCAN_to_remove_outliers": self.config.use_dbscan_outlier_detection,
+                "dbscan_eps": self.config.dbscan_eps,
+                # 噪声注入
+                "noise_standard_deviation": self.config.noise_sigma,
             },
             "model_training_parameters": {
                 "learning_rate": self.config.learning_rate,
@@ -121,6 +178,13 @@ class XGBoostExtremaSelector:
                 "shuffle": self.config.shuffle,
             },
             "train_period_days": self.train_period_days,
+            # 回测实时模型模式
+            "backtest_live_models": self.config.backtest_live_models,
+            # 重新训练间隔
+            "retrain_days": self.config.retrain_days,
+            # 动态阈值计算
+            "fit_live_predictions": self.config.use_fit_live_predictions,
+            "fit_live_predictions_candles": self.config.fit_live_predictions_candles,
         }
 
     def load_data(self) -> pl.DataFrame:
@@ -293,7 +357,7 @@ class XGBoostExtremaSelector:
             logger.error("StockAI 模型未初始化")
             return pl.DataFrame()
 
-        test_df = self.dataset.fetch_learn(Segment.TEST)    
+        test_df = self.dataset.fetch_infer(Segment.TEST)    
         unique_symbols = test_df["vt_symbol"].unique().to_list()
 
         all_predictions = []
@@ -312,15 +376,26 @@ class XGBoostExtremaSelector:
                     df=symbol_df,
                     pair=symbol,
                 )
+              
                 # logger.info(f"预测结果: {result_df.head(10)}")
                 # 提取预测结果并添加股票代码
-                # 预测列名是标签列名 &s-extrema
+                # 保留所有预测相关列（包括阈值和DI参数）
                 prediction_col = "&s-extrema"
                 if prediction_col in result_df.columns:
-                    predictions_df = result_df.select([
+                    # 选择所有需要的列
+                    select_cols = [
                         "datetime",
-                        prediction_col
-                    ]).with_columns([pl.lit(symbol).alias("vt_symbol")])
+                        prediction_col,
+                        "&s-maxima_sort_threshold",
+                        "&s-minima_sort_threshold",
+                        "DI_cutoff",
+                        "DI_values",
+                 
+                    ]
+                    # 只选择实际存在的列
+                    available_cols = [c for c in select_cols if c in result_df.columns]
+                    predictions_df = result_df.select(available_cols).with_columns([pl.lit(symbol).alias("vt_symbol")])
+                    logger.info(f"预测结果: {predictions_df.head(10)}")
                     all_predictions.append(predictions_df)
 
             except Exception as e:
@@ -340,15 +415,23 @@ class XGBoostExtremaSelector:
         logger.info(f"预测结果形状: {result_df.shape}")
      
         # 生成信号 (基于阈值)
-        # 简化版: 预测值 > 0.5 为极大值点，< -0.5 为极小值点
+        # 使用动态阈值：预测值 > maxima_threshold 为极大值点，< minima_threshold 为极小值点
 
         maxima_signals = result_df.filter(
-            pl.col("&s-extrema") > 0.5
-        ).select(["datetime", "vt_symbol", "&s-extrema"])
+            pl.col("&s-extrema") > pl.col("&s-maxima_sort_threshold")
+        ).select([
+            "datetime", "vt_symbol", "&s-extrema",
+            "&s-maxima_sort_threshold", "&s-minima_sort_threshold",
+            "DI_cutoff"
+        ])
 
         minima_signals = result_df.filter(
-            pl.col("&s-extrema") < -0.5
-        ).select(["datetime", "vt_symbol", "&s-extrema"])
+            pl.col("&s-extrema") < pl.col("&s-minima_sort_threshold")
+        ).select([
+            "datetime", "vt_symbol", "&s-extrema",
+            "&s-maxima_sort_threshold", "&s-minima_sort_threshold",
+            "DI_cutoff"
+        ])
 
         # 添加信号列
         maxima_signals = maxima_signals.with_columns(pl.lit(-1).alias("signal"))
@@ -370,6 +453,173 @@ class XGBoostExtremaSelector:
             logger.info(f"信号已保存到 lab: {self.name}")
 
         return signal_df
+
+    def run_sliding_window(self) -> pl.DataFrame:
+        """
+        滑动窗口回测
+
+        每隔 backtest_period_days 训练一次，每次使用 train_period_days 历史数据
+        用于累积历史预测，支持 fit_live_predictions 动态阈值
+        """
+        from vnpy.stockai.utils import create_full_timerange
+
+        logger.info("\n" + "#" * 60)
+        logger.info(f"# XGBoost 极值选股器 - 滑动窗口回测 - {self.name}")
+        logger.info("#" * 60)
+
+        # 1. 加载数据
+        df = self.load_data()
+
+        # 2. 计算特征 (策略层)
+        self.compute_features(df)
+
+        # 3. 使用 DataKitchen 分割时间窗口
+        # 需要完整时间范围（包含训练前置期）
+        full_start, full_end = create_full_timerange(
+            self.start, self.end, self.train_period_days
+        )
+
+        # 创建临时 DataKitchen 用于分割
+        temp_dk = StockaiDataKitchen(self.stockai_config, "TEMP", self.lab)
+        train_ranges, predict_ranges = temp_dk.split_timerange(
+            full_start, full_end,
+            self.train_period_days,
+            self.config.backtest_period_days
+        )
+
+        logger.info(f"\n时间窗口分割完成:")
+        logger.info(f"  训练窗口数量: {len(train_ranges)}")
+        logger.info(f"  预测窗口数量: {len(predict_ranges)}")
+        logger.info(f"  时间范围: {full_start} ~ {full_end}")
+        if len(train_ranges) > 0:
+            for i, (tr, pr) in enumerate(zip(train_ranges, predict_ranges)):
+                logger.info(f"    窗口 {i+1}: 训练 {tr[0]}~{tr[1]}, 预测 {pr[0]}~{pr[1]}")
+
+        all_signals = []
+
+        # 创建单个 StockAI 模型实例（所有窗口和股票共享 DataDrawer）
+        stockai_model = XGBoostExtremaModel(self.stockai_config, self.lab)
+
+        # 4. 滑动窗口循环
+        for i, (train_range, predict_range) in enumerate(zip(train_ranges, predict_ranges)):
+            logger.info(f"\n{'='*60}")
+            logger.info(f"窗口 {i+1}/{len(train_ranges)}")
+            logger.info(f"  训练期: {train_range}")
+            logger.info(f"  预测期: {predict_range}")
+            logger.info(f"{'='*60}")
+
+            # 4.1 分割数据集
+            # 将字符串日期转换为 datetime 进行比较
+            train_start_dt = datetime.strptime(train_range[0], "%Y-%m-%d")
+            train_end_dt = datetime.strptime(train_range[1], "%Y-%m-%d")
+            predict_start_dt = datetime.strptime(predict_range[0], "%Y-%m-%d")
+            predict_end_dt = datetime.strptime(predict_range[1], "%Y-%m-%d")
+
+            train_df = self.dataset.learn_df.filter(
+                (pl.col("datetime") >= train_start_dt) & (pl.col("datetime") < train_end_dt)
+            )
+            predict_df = self.dataset.learn_df.filter(
+                (pl.col("datetime") >= predict_start_dt) & (pl.col("datetime") <= predict_end_dt)
+            )
+
+            if len(train_df) == 0:
+                logger.warning(f"  [SKIP] 训练集为空")
+                continue
+
+            if len(predict_df) == 0:
+                logger.warning(f"  [SKIP] 预测集为空")
+                continue
+
+            logger.info(f"  训练样本: {len(train_df)}, 预测样本: {len(predict_df)}")
+
+            # 4.2 为每只股票训练和预测（共享 model 实例）
+            window_signals = self._process_window(train_df, predict_df, stockai_model, i+1)
+
+            if len(window_signals) > 0:
+                all_signals.append(window_signals)
+                logger.info(f"  本窗口信号数: {len(window_signals)}")
+
+        # 5. 合并所有窗口的信号
+        if all_signals:
+            self.signal_df = pl.concat(all_signals).sort(["datetime", "vt_symbol"])
+            logger.info(f"\n{'='*60}")
+            logger.info(f"滑动窗口回测完成! 总信号数: {len(self.signal_df)}")
+            logger.info(f"{'='*60}")
+
+            # 保存信号
+            if self.lab and hasattr(self.lab, 'save_signal'):
+                self.lab.save_signal(self.name, self.signal_df)
+        else:
+            logger.warning("未生成任何信号")
+            self.signal_df = pl.DataFrame()
+
+        return self.signal_df
+
+    def _process_window(self, train_df: pl.DataFrame, predict_df: pl.DataFrame, stockai_model: XGBoostExtremaModel, window_idx: int) -> pl.DataFrame:
+        """处理单个窗口的训练和预测"""
+        # 获取唯一股票列表
+        train_symbols = train_df["vt_symbol"].unique().to_list()
+        predict_symbols = predict_df["vt_symbol"].unique().to_list()
+        all_symbols = list(set(train_symbols + predict_symbols))
+
+        all_predictions = []
+
+        # 训练并预测每只股票
+        for symbol in all_symbols:
+            try:
+                # 提取该股票数据
+                symbol_train = train_df.filter(pl.col("vt_symbol") == symbol)
+                symbol_predict = predict_df.filter(pl.col("vt_symbol") == symbol)
+
+                if len(symbol_train) == 0:
+                    continue
+                if len(symbol_predict) == 0:
+                    continue
+                # 训练和预测：传入训练数据和预测数据，start() 内部处理
+                result_df = stockai_model.start(
+                    train_df=symbol_train,
+                    predict_df=symbol_predict,
+                    pair=symbol
+                )
+                   
+
+                # 提取预测结果
+                prediction_col = "&s-extrema"
+                if prediction_col in result_df.columns:
+                    pred = result_df.select([
+                        "datetime", prediction_col,
+                        "&s-maxima_sort_threshold", "&s-minima_sort_threshold",
+                        "DI_values",
+                        "DI_cutoff"
+                    ]).with_columns([pl.lit(symbol).alias("vt_symbol")])
+                    all_predictions.append(pred)
+                    logger.info(f"预测结果: {pred.tail(10)}")
+            except Exception as e:
+                logger.error(f"  {symbol} 处理失败: {e}")
+                continue
+
+        # 合并预测并生成信号
+        if not all_predictions:
+            return pl.DataFrame()
+
+        result_df = pl.concat(all_predictions).sort(["datetime", "vt_symbol"])
+
+        # 生成信号
+        maxima_signals = result_df.filter(
+            pl.col("&s-extrema") > pl.col("&s-maxima_sort_threshold")
+        ).select([
+            "datetime", "vt_symbol", "&s-extrema",
+            "&s-maxima_sort_threshold", "&s-minima_sort_threshold", "DI_cutoff", "DI_values"
+        ]).with_columns(pl.lit(-1).alias("signal"))
+
+        minima_signals = result_df.filter(
+            pl.col("&s-extrema") < pl.col("&s-minima_sort_threshold")
+        ).select([
+            "datetime", "vt_symbol", "&s-extrema",
+            "&s-maxima_sort_threshold", "&s-minima_sort_threshold", "DI_cutoff", "DI_values"
+        ]).with_columns(pl.lit(1).alias("signal"))
+
+        return pl.concat([maxima_signals, minima_signals]) if len(maxima_signals) > 0 or len(minima_signals) > 0 else pl.DataFrame()
 
     def run(self) -> pl.DataFrame:
         """运行完整选股流程"""
@@ -426,23 +676,27 @@ def main():
         index_code="csi300"
     )
 
-    # 配置
+    # 配置 - 滑动窗口回测
     config = SelectorConfig(
         top_n=100,
-        train_period_days=300,
+        train_period_days=120,      # 每次训练用前120天
         extended_days=100,
+        backtest_period_days=1,     # 每5天重新训练
+        use_fit_live_predictions=True,
+        fit_live_predictions_candles=20,
+        retrain_days=5
     )
 
     selector = XGBoostExtremaSelector(
         lab=lab,
         name="300_xgb_extrema",
-        start="2026-04-14",
-        end="2026-04-15",
+        start="2026-04-15",         # 回测开始
+        end="2026-04-30",           # 回测结束
         config=config,
     )
 
-    # 运行
-    signal_df = selector.run()
+    # 运行滑动窗口回测
+    signal_df = selector.run_sliding_window()
 
     if signal_df is not None and len(signal_df) > 0:
         logger.info("\n最终信号:")

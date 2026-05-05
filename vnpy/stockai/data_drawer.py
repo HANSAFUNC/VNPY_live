@@ -146,8 +146,29 @@ class StockaiDataDrawer:
             predictions: 预测结果DataFrame
         """
         if pair in self.historic_predictions:
+            # 对齐列结构：确保两个DataFrame有相同的列
+            existing_df = self.historic_predictions[pair]
+            all_cols = set(existing_df.columns) | set(predictions.columns)
+
+            # 为缺失的列补空值
+            for col in all_cols:
+                if col not in existing_df.columns:
+                    existing_df = existing_df.with_columns([pl.lit(None).alias(col)])
+                if col not in predictions.columns:
+                    predictions = predictions.with_columns([pl.lit(None).alias(col)])
+
+            # 确保列顺序一致
+            predictions = predictions.select(existing_df.columns)
+
             self.historic_predictions[pair] = pl.concat(
-                [self.historic_predictions[pair], predictions]
+                [existing_df, predictions]
+            )
+            # 按 datetime 去重，保留最新记录
+            self.historic_predictions[pair] = (
+                self.historic_predictions[pair]
+                .sort("datetime", descending=True)
+                .unique(subset=["datetime"], keep="first")
+                .sort("datetime")
             )
         else:
             self.historic_predictions[pair] = predictions
