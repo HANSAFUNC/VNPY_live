@@ -4,6 +4,7 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Optional, Tuple
 
+import joblib
 import numpy as np
 import polars as pl
 
@@ -337,7 +338,15 @@ class IStockaiModel(ABC):
         import json
 
         # 保存模型
-        self.dd.save_model(pair, model, dk.data_path.name.split("_")[-1])
+        # 从 data_path 中提取时间戳并转换为整数
+        timestamp_str = dk.data_path.name.split("_")[-1]
+        try:
+            timestamp = int(timestamp_str)
+        except ValueError:
+            # 如果转换失败，使用当前时间戳
+            from ..utils import get_timestamp
+            timestamp = get_timestamp()
+        self.dd.save_model(pair, model, timestamp)
 
         # 保存管道
         if dk.feature_pipeline:

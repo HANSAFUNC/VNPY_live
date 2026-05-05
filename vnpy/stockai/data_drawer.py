@@ -67,6 +67,9 @@ class StockaiDataDrawer:
             "extras": {},
         }
 
+        # 通用数据存储（用于各种临时数据）
+        self.data: dict[str, Any] = {}
+
         # 指标追踪器
         self.metric_tracker: dict[str, dict] = {}
 
