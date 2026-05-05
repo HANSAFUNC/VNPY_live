@@ -690,7 +690,7 @@ def main():
     selector = XGBoostExtremaSelector(
         lab=lab,
         name="300_xgb_extrema",
-        start="2026-04-15",         # 回测开始
+        start="2026-04-01",         # 回测开始
         end="2026-04-30",           # 回测结束
         config=config,
     )

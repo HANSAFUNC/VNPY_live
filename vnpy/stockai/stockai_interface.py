@@ -116,8 +116,15 @@ class IStockaiModel(ABC):
         # 执行预测
         predictions_df, do_predict = self.predict(predict_data, dk)
 
+        # 设置初始返回值 (用于历史预测累积)
+        if pair not in self.dd.historic_predictions:
+            self.dd.set_initial_return_values(pair, predictions_df, predict_data)
+
         # 合并预测结果
         result_df = self._attach_predictions(predict_data, predictions_df, dk)
+
+        # 附加返回值到DataFrame (使用 model_return_values)
+        result_df = self.dd.attach_return_values_to_return_dataframe(pair, result_df)
 
         return result_df
 
@@ -174,8 +181,15 @@ class IStockaiModel(ABC):
         # 预测
         predictions_df, do_predict = self.predict(predict_df, dk)
 
+        # 设置初始返回值 (用于历史预测累积)
+        if pair not in self.dd.historic_predictions:
+            self.dd.set_initial_return_values(pair, predictions_df, predict_df)
+
         # 合并结果
         result_df = self._attach_predictions(predict_df, predictions_df, dk)
+
+        # 附加返回值到DataFrame (使用 model_return_values)
+        result_df = self.dd.attach_return_values_to_return_dataframe(pair, result_df)
 
         return result_df
 
@@ -310,3 +324,86 @@ class IStockaiModel(ABC):
         # 根据 datetime 合并
         result = df_cleaned.join(predictions, on="datetime", how="left")
         return result
+
+    def save_data(self, model: Any, pair: str, dk: StockaiDataKitchen) -> None:
+        """
+        保存模型和相关数据到磁盘 (FreqAI风格)
+
+        参数:
+            model: 训练好的模型
+            pair: 股票代码
+            dk: 数据厨房实例
+        """
+        import json
+
+        # 保存模型
+        self.dd.save_model(pair, model, dk.data_path.name.split("_")[-1])
+
+        # 保存管道
+        if dk.feature_pipeline:
+            joblib.dump(dk.feature_pipeline, dk.data_path / "feature_pipeline.pkl")
+        if dk.label_pipeline:
+            joblib.dump(dk.label_pipeline, dk.data_path / "label_pipeline.pkl")
+
+        # 构建元数据
+        metadata = {
+            "pair": pair,
+            "data_path": str(dk.data_path),
+            "model_filename": dk.model_filename,
+            "training_features_list": dk.training_features_list,
+            "label_list": dk.label_list,
+        }
+
+        # 保存元数据
+        with open(dk.data_path / "metadata.json", "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2)
+
+        # 更新 meta_data_dictionary (内存缓存)
+        if pair not in self.dd.meta_data_dictionary:
+            self.dd.meta_data_dictionary[pair] = {}
+        self.dd.meta_data_dictionary[pair]["metadata"] = metadata
+        self.dd.meta_data_dictionary[pair]["feature_pipeline"] = dk.feature_pipeline
+        self.dd.meta_data_dictionary[pair]["label_pipeline"] = dk.label_pipeline
+
+        # 缓存模型
+        self.dd.model_dictionary[dk.model_filename] = model
+
+        logger.info(f"模型和数据已保存: {pair}")
+
+    def load_data(self, pair: str, dk: StockaiDataKitchen) -> Any:
+        """
+        加载模型和相关数据 (FreqAI风格)
+
+        参数:
+            pair: 股票代码
+            dk: 数据厨房实例
+
+        返回:
+            加载的模型
+        """
+        if pair not in self.dd.pair_dict:
+            raise ValueError(f"未找到 {pair} 的模型元数据")
+
+        filename = self.dd.pair_dict[pair]["model_filename"]
+        dk.model_filename = filename
+        dk.data_path = Path(self.dd.pair_dict[pair]["data_path"])
+
+        # 优先从内存加载 (meta_data_dictionary)
+        if pair in self.dd.meta_data_dictionary:
+            logger.info(f"{pair}: 从内存缓存加载模型数据")
+            meta_dict = self.dd.meta_data_dictionary[pair]
+            if "metadata" in meta_dict:
+                dk.training_features_list = meta_dict["metadata"].get("training_features_list", [])
+                dk.label_list = meta_dict["metadata"].get("label_list", [])
+            if "feature_pipeline" in meta_dict:
+                dk.feature_pipeline = meta_dict["feature_pipeline"]
+            if "label_pipeline" in meta_dict:
+                dk.label_pipeline = meta_dict["label_pipeline"]
+
+            # 从内存缓存获取模型
+            if pair in self.dd.model_dictionary:
+                return self.dd.model_dictionary[pair]
+
+        # 从磁盘加载模型
+        model = self.dd.load_model(pair)
+        return model

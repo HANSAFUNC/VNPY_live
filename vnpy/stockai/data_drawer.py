@@ -40,6 +40,9 @@ class StockaiDataDrawer:
         # 内存存储结构
         self.pair_dict: dict[str, dict] = {}  # {股票代码: 元数据}
         self.model_dictionary: dict[str, Any] = {}  # {文件名: 模型对象}
+        self.meta_data_dictionary: dict[str, dict[str, Any]] = {}  # 额外元数据存储
+        self.model_return_values: dict[str, pl.DataFrame] = {}  # 模型预测返回值存储
+        self.historic_data: dict[str, dict[str, pl.DataFrame]] = {}  # 历史K线数据缓存
         self.historic_predictions: dict[str, pl.DataFrame] = {}  # {股票代码: 预测历史}
 
         # 文件路径
@@ -48,6 +51,21 @@ class StockaiDataDrawer:
 
         # 回测实时模型模式
         self.backtest_live_models = config.get("backtest_live_models", False)
+
+        # 模型保存类型
+        self.model_type = config.get("model_save_type", "joblib")
+
+        # 训练队列和DBSCAN参数跟踪
+        self.training_queue: dict[str, int] = {}
+        self.old_DBSCAN_eps: dict[str, float] = {}
+
+        # 空的pair_dict模板
+        self.empty_pair_dict: dict = {
+            "model_filename": "",
+            "trained_timestamp": 0,
+            "data_path": "",
+            "extras": {},
+        }
 
         # 指标追踪器
         self.metric_tracker: dict[str, dict] = {}
@@ -77,6 +95,35 @@ class StockaiDataDrawer:
         safe_pair = pair.replace(".", "_")
         return f"sub-train-{safe_pair}_{timestamp}"
 
+    def get_pair_dict_info(self, pair: str) -> tuple[str, int]:
+        """
+        获取指定股票的模型信息
+
+        参数:
+            pair: 股票代码
+
+        返回:
+            (model_filename, trained_timestamp)
+        """
+        pair_info = self.pair_dict.get(pair)
+        if pair_info:
+            return pair_info["model_filename"], pair_info["trained_timestamp"]
+        else:
+            # 初始化新的pair_dict项
+            self.pair_dict[pair] = self.empty_pair_dict.copy()
+            return "", 0
+
+    def set_pair_dict_info(self, metadata: dict) -> None:
+        """
+        设置股票元数据（如果不存在）
+
+        参数:
+            metadata: 包含pair等信息的字典
+        """
+        pair = metadata.get("pair")
+        if pair and pair not in self.pair_dict:
+            self.pair_dict[pair] = self.empty_pair_dict.copy()
+
     def save_model(self, pair: str, model: Any, timestamp: int) -> None:
         """
         保存模型到磁盘
@@ -97,12 +144,13 @@ class StockaiDataDrawer:
         # 缓存到内存
         self.model_dictionary[filename] = model
 
-        # 更新元数据
-        self.pair_dict[pair] = {
+        # 更新元数据（使用empty_pair_dict作为模板）
+        self.pair_dict[pair] = self.empty_pair_dict.copy()
+        self.pair_dict[pair].update({
             "model_filename": filename,
             "trained_timestamp": timestamp,
             "data_path": str(model_path),
-        }
+        })
         save_json(self.pair_dict, self.pair_dictionary_path)
 
         logger.info(f"模型已保存: {filename} ({pair})")
@@ -249,3 +297,71 @@ class StockaiDataDrawer:
             self.metric_tracker[pair] = {}
         self.metric_tracker[pair][metric] = value
         logger.debug(f"{pair}: 指标 {metric} = {value:.4f}")
+
+    def set_initial_return_values(
+        self, pair: str, pred_df: pl.DataFrame, dataframe: pl.DataFrame
+    ) -> None:
+        """
+        设置初始返回值到历史预测DataFrame
+
+        避免在历史K线上重新预测，同时存储历史预测（真实预测而非训练数据上的推理）
+        """
+        new_pred = pred_df.clone()
+
+        # 设置 date_pred 列
+        if "datetime" in dataframe.columns:
+            new_pred = new_pred.with_columns([dataframe["datetime"].alias("date_pred")])
+
+        # 除了date_pred，其他列设为null（表示停机期间无预测）
+        for col in new_pred.columns:
+            if col not in ["date_pred", "datetime"]:
+                new_pred = new_pred.with_columns([pl.lit(None).alias(col)])
+
+        hist_preds = self.historic_predictions.get(pair, pl.DataFrame()).clone()
+        if len(hist_preds) == 0:
+            self.model_return_values[pair] = new_pred
+            return
+
+        # 合并历史预测
+        all_cols = set(new_pred.columns) | set(hist_preds.columns)
+        for col in all_cols:
+            if col not in new_pred.columns:
+                new_pred = new_pred.with_columns([pl.lit(None).alias(col)])
+            if col not in hist_preds.columns:
+                hist_preds = hist_preds.with_columns([pl.lit(None).alias(col)])
+
+        new_pred = new_pred.select(hist_preds.columns)
+        df_concat = pl.concat([hist_preds, new_pred])
+
+        # 用0填充缺失值
+        df_concat = df_concat.fill_null(0).fill_nan(0)
+
+        self.historic_predictions[pair] = df_concat
+        self.model_return_values[pair] = df_concat.tail(len(dataframe))
+
+    def attach_return_values_to_return_dataframe(
+        self, pair: str, dataframe: pl.DataFrame
+    ) -> pl.DataFrame:
+        """
+        将返回值附加到策略DataFrame
+
+        参数:
+            pair: 股票代码
+            dataframe: 策略DataFrame
+
+        返回:
+            附加了返回值的DataFrame
+        """
+        if pair not in self.model_return_values:
+            return dataframe
+
+        df = self.model_return_values[pair]
+
+        # 保留原始DataFrame中不以 & 开头的列
+        to_keep = [col for col in dataframe.columns if not col.startswith("&")]
+        result = dataframe.select(to_keep)
+
+        # 水平合并
+        result = pl.concat([result, df], how="horizontal")
+
+        return result

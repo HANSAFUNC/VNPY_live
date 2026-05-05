@@ -72,8 +72,6 @@ class XGBoostExtremaModel(BaseRegressionModel):
         time_spent = time.time() - start
 
         # 保存训练样本数用于 fit_live_predictions 预热计算
-        if not hasattr(self.dd, 'model_return_values'):
-            self.dd.model_return_values = {}
         self.dd.model_return_values[dk.pair] = pl.DataFrame({"train": range(len(X))})
 
         # 记录训练时间
@@ -88,7 +86,7 @@ class XGBoostExtremaModel(BaseRegressionModel):
     def _get_init_model(self, pair: str):
         """获取增量训练的初始模型"""
         # 检查是否支持增量训练
-        if hasattr(self.dd, 'model_return_values') and pair in self.dd.model_return_values:
+        if pair in self.dd.model_return_values:
             # 返回之前的模型用于继续训练
             return self.dd.model_return_values[pair]
         return None
@@ -107,24 +105,30 @@ class XGBoostExtremaModel(BaseRegressionModel):
         # 初始化 exchange_candles（训练样本数）
         if not hasattr(self, 'exchange_candles'):
             # 从 model_return_values 获取训练样本数
-            if hasattr(self.dd, 'model_return_values') and pair in self.dd.model_return_values:
+            if pair in self.dd.model_return_values:
                 self.exchange_candles = len(self.dd.model_return_values[pair])
             else:
                 self.exchange_candles = 0
 
         historic_df = self.dd.historic_predictions.get(pair)
+        logger.info(f"{pair}: 进入实时预测预热流程")
         if historic_df is None or len(historic_df) == 0:
             logger.info(f"{pair}: 实时预测预热中，历史数据 0/{num_candles + self.exchange_candles}")
             warmed_up = False
         else:
             # FreqAI 风格：需要 num_candles + exchange_candles 条数据
+            logger.info(f"{pair}: historic_df 行数: {len(historic_df)}, 期望数: {num_candles + self.exchange_candles} num_candles:{num_candles} exchange_candles:{self.exchange_candles}")
             candle_diff = len(historic_df) - (num_candles + self.exchange_candles)
             if candle_diff < 0:
                 logger.info(f"{pair}: 实时预测预热中，还需 {abs(candle_diff)} 根K线 (当前 {len(historic_df)}/{num_candles + self.exchange_candles})")
                 warmed_up = False
+            else:
+                logger.info(f"{pair}: 历史数据已满足预热要求。")
 
         if historic_df is not None and len(historic_df) > 0:
             pred_df_full = historic_df.tail(num_candles)
+            logger.info(f"{pair}: pred_df_full shape: {pred_df_full.shape if hasattr(pred_df_full, 'shape') else len(pred_df_full)} (取尾部 {num_candles} 条用于后续阈值计算)")
+     
 
             # 计算预测值的排序均值
             label_cols = [c for c in pred_df_full.columns if c.startswith("&")]

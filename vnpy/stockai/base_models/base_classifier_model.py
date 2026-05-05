@@ -84,7 +84,8 @@ class BaseClassifierModel(IStockaiModel):
         logger.info(f"训练: {len(X_train)} 样本, {X_train.shape[1]} 特征, {len(dk.unique_class_list)} 类别")
         model = self.fit(data_dict, dk)
 
-        self._save_model_and_pipelines(pair, model, dk)
+        # 保存模型和数据 (使用接口的save_data方法)
+        self.save_data(model, pair, dk)
 
         logger.info(f"训练完成 (分类): {pair}")
         return model
@@ -219,6 +220,13 @@ class BaseClassifierModel(IStockaiModel):
         with open(dk.data_path / "metadata.json", "w", encoding="utf-8") as f:
             json.dump(metadata, f, indent=2)
 
+        # 更新 meta_data_dictionary (FreqAI风格)
+        if pair not in self.dd.meta_data_dictionary:
+            self.dd.meta_data_dictionary[pair] = {}
+        self.dd.meta_data_dictionary[pair]["metadata"] = metadata
+        self.dd.meta_data_dictionary[pair]["feature_pipeline"] = dk.feature_pipeline
+        self.dd.meta_data_dictionary[pair]["label_pipeline"] = dk.label_pipeline
+
     def _load_pipelines(self, pair: str, dk: StockaiDataKitchen) -> None:
         """加载管道和元数据"""
         if pair not in self.dd.pair_dict:
@@ -226,6 +234,24 @@ class BaseClassifierModel(IStockaiModel):
 
         filename = self.dd.pair_dict[pair]["model_filename"]
         model_path = self.dd.full_path / filename
+
+        # 优先从内存中的 meta_data_dictionary 加载 (FreqAI风格)
+        if pair in self.dd.meta_data_dictionary:
+            meta_dict = self.dd.meta_data_dictionary[pair]
+            if "metadata" in meta_dict:
+                dk.training_features_list = meta_dict["metadata"].get("training_features_list", [])
+                dk.label_list = meta_dict["metadata"].get("label_list", [])
+                dk.unique_classes = meta_dict["metadata"].get("unique_classes", {})
+                dk.unique_class_list = meta_dict["metadata"].get("unique_class_list", [])
+                logger.info(
+                    f"{pair}: 从内存加载特征列表 "
+                    f"({len(dk.training_features_list)} 个特征): {dk.training_features_list[:5]}..."
+                )
+            if "feature_pipeline" in meta_dict:
+                dk.feature_pipeline = meta_dict["feature_pipeline"]
+            if "label_pipeline" in meta_dict:
+                dk.label_pipeline = meta_dict["label_pipeline"]
+            return
 
         metadata_path = model_path / "metadata.json"
         if metadata_path.exists():
