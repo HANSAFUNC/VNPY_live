@@ -30,7 +30,7 @@ class BaseClassifierModel(IStockaiModel):
     def train(
         self,
         df: pl.DataFrame,
-        pair: str,
+        symbol: str,
         dk: StockaiDataKitchen,
     ) -> Any:
         """
@@ -38,13 +38,13 @@ class BaseClassifierModel(IStockaiModel):
 
         参数:
             df: 已包含特征 (%-前缀) 和标签 (&-前缀) 的 DataFrame
-            pair: 股票代码
+            symbol: 股票代码
             dk: 数据厨房
 
         返回:
             训练好的模型
         """
-        logger.info(f"开始训练 (分类): {pair}")
+        logger.info(f"开始训练 (分类): {symbol}")
 
         dk.find_features(df)
         dk.find_labels(df)
@@ -66,7 +66,7 @@ class BaseClassifierModel(IStockaiModel):
         dk.feature_pipeline = self.define_data_pipeline()
         dk.label_pipeline = self.define_label_pipeline()
 
-        logger.info(f"{pair}: 拟合特征管道...")
+        logger.info(f"{symbol}: 拟合特征管道...")
         dk.feature_pipeline.feature_list = dk.training_features_list
         dk.feature_pipeline.fit(data_dict["train_features"])
         dk.training_features_list = dk.feature_pipeline.feature_list
@@ -84,11 +84,10 @@ class BaseClassifierModel(IStockaiModel):
         logger.info(f"训练: {len(X_train)} 样本, {X_train.shape[1]} 特征, {len(dk.unique_class_list)} 类别")
         model = self.fit(data_dict, dk)
 
-        # 保存模型和数据 (使用 coin 参数名以匹配 FreqAI 风格)
-        coin = pair
-        self.save_data(model, coin, dk)
+        # 保存模型和数据 (使用 symbol 参数名)
+        self.save_data(model, symbol, dk)
 
-        logger.info(f"训练完成 (分类): {pair}")
+        logger.info(f"训练完成 (分类): {symbol}")
         return model
 
     def predict(
@@ -106,10 +105,10 @@ class BaseClassifierModel(IStockaiModel):
         返回:
             (predictions_df, do_predict)
         """
-        pair = dk.pair
+        symbol = dk.symbol
 
         dk.find_features(df)
-        self._load_pipelines(pair, dk)
+        self._load_pipelines(symbol, dk)
 
         features_df, _ = dk.filter_features(
             unfiltered_df=df,
@@ -125,7 +124,7 @@ class BaseClassifierModel(IStockaiModel):
         X, _, _ = dk.feature_pipeline.transform(features_df.to_numpy())
 
         if self.model is None:
-            raise ValueError(f"{pair}: 模型未加载，请先调用 start() 或加载模型")
+            raise ValueError(f"{symbol}: 模型未加载，请先调用 start() 或加载模型")
         predictions = self.model.predict(X)
 
         label_name = dk.label_list[0] if dk.label_list else "&target"
@@ -139,7 +138,7 @@ class BaseClassifierModel(IStockaiModel):
         valid_mask = np.isfinite(predictions.astype(float))
         do_predict = do_predict & valid_mask.astype(int)
 
-        logger.info(f"预测完成 (分类): {pair}, {len(result_df)} 样本, {do_predict.sum()} 有效")
+        logger.info(f"预测完成 (分类): {symbol}, {len(result_df)} 样本, {do_predict.sum()} 有效")
 
         return result_df, do_predict
 
@@ -177,7 +176,7 @@ class BaseClassifierModel(IStockaiModel):
         else:
             dk.unique_classes = {"&target": unique_vals}
 
-        logger.info(f"{dk.pair}: 唯一类别: {unique_vals}")
+        logger.info(f"{dk.symbol}: 唯一类别: {unique_vals}")
 
     def define_data_pipeline(self) -> Pipeline:
         """定义特征处理管道（可覆盖）"""
@@ -192,7 +191,7 @@ class BaseClassifierModel(IStockaiModel):
 
     def _save_model_and_pipelines(
         self,
-        pair: str,
+        symbol: str,
         model: Any,
         dk: StockaiDataKitchen,
     ) -> None:
@@ -200,9 +199,9 @@ class BaseClassifierModel(IStockaiModel):
         from ..utils import get_timestamp
 
         timestamp = get_timestamp()
-        dk.set_paths(pair, timestamp)
+        dk.set_paths(symbol, timestamp)
 
-        self.dd.save_model(pair, model, timestamp)
+        self.dd.save_model(symbol, model, timestamp)
 
         if dk.feature_pipeline:
             joblib.dump(dk.feature_pipeline, dk.data_path / "feature_pipeline.pkl")
@@ -211,7 +210,7 @@ class BaseClassifierModel(IStockaiModel):
 
         import json
         metadata = {
-            "pair": pair,
+            "symbol": symbol,
             "timestamp": timestamp,
             "training_features_list": dk.training_features_list,
             "label_list": dk.label_list,
@@ -222,30 +221,30 @@ class BaseClassifierModel(IStockaiModel):
             json.dump(metadata, f, indent=2)
 
         # 更新 meta_data_dictionary (FreqAI风格)
-        if pair not in self.dd.meta_data_dictionary:
-            self.dd.meta_data_dictionary[pair] = {}
-        self.dd.meta_data_dictionary[pair]["metadata"] = metadata
-        self.dd.meta_data_dictionary[pair]["feature_pipeline"] = dk.feature_pipeline
-        self.dd.meta_data_dictionary[pair]["label_pipeline"] = dk.label_pipeline
+        if symbol not in self.dd.meta_data_dictionary:
+            self.dd.meta_data_dictionary[symbol] = {}
+        self.dd.meta_data_dictionary[symbol]["metadata"] = metadata
+        self.dd.meta_data_dictionary[symbol]["feature_pipeline"] = dk.feature_pipeline
+        self.dd.meta_data_dictionary[symbol]["label_pipeline"] = dk.label_pipeline
 
-    def _load_pipelines(self, pair: str, dk: StockaiDataKitchen) -> None:
+    def _load_pipelines(self, symbol: str, dk: StockaiDataKitchen) -> None:
         """加载管道和元数据"""
-        if pair not in self.dd.pair_dict:
-            raise ValueError(f"未找到 {pair} 的模型")
+        if symbol not in self.dd.symbol_dict:
+            raise ValueError(f"未找到 {symbol} 的模型")
 
-        filename = self.dd.pair_dict[pair]["model_filename"]
+        filename = self.dd.symbol_dict[symbol]["model_filename"]
         model_path = self.dd.full_path / filename
 
         # 优先从内存中的 meta_data_dictionary 加载 (FreqAI风格)
-        if pair in self.dd.meta_data_dictionary:
-            meta_dict = self.dd.meta_data_dictionary[pair]
+        if symbol in self.dd.meta_data_dictionary:
+            meta_dict = self.dd.meta_data_dictionary[symbol]
             if "metadata" in meta_dict:
                 dk.training_features_list = meta_dict["metadata"].get("training_features_list", [])
                 dk.label_list = meta_dict["metadata"].get("label_list", [])
                 dk.unique_classes = meta_dict["metadata"].get("unique_classes", {})
                 dk.unique_class_list = meta_dict["metadata"].get("unique_class_list", [])
                 logger.info(
-                    f"{pair}: 从内存加载特征列表 "
+                    f"{symbol}: 从内存加载特征列表 "
                     f"({len(dk.training_features_list)} 个特征): {dk.training_features_list[:5]}..."
                 )
             if "feature_pipeline" in meta_dict:
@@ -264,11 +263,11 @@ class BaseClassifierModel(IStockaiModel):
             dk.unique_classes = metadata.get("unique_classes", {})
             dk.unique_class_list = metadata.get("unique_class_list", [])
             logger.info(
-                f"{pair}: 从 metadata 加载特征列表 "
+                f"{symbol}: 从 metadata 加载特征列表 "
                 f"({len(dk.training_features_list)} 个特征): {dk.training_features_list[:5]}..."
             )
         else:
-            raise ValueError(f"{pair}: 未找到 metadata.json，无法加载特征列表")
+            raise ValueError(f"{symbol}: 未找到 metadata.json，无法加载特征列表")
 
         fp_path = model_path / "feature_pipeline.pkl"
         lp_path = model_path / "label_pipeline.pkl"
@@ -276,7 +275,7 @@ class BaseClassifierModel(IStockaiModel):
         if fp_path.exists():
             dk.feature_pipeline = joblib.load(fp_path)
         else:
-            raise ValueError(f"{pair}: 未找到 feature_pipeline.pkl")
+            raise ValueError(f"{symbol}: 未找到 feature_pipeline.pkl")
 
         if lp_path.exists():
             dk.label_pipeline = joblib.load(lp_path)

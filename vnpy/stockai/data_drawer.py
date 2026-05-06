@@ -38,7 +38,7 @@ class StockaiDataDrawer:
         self.full_path.mkdir(parents=True, exist_ok=True)
 
         # 内存存储结构
-        self.pair_dict: dict[str, dict] = {}  # {股票代码: 元数据}
+        self.symbol_dict: dict[str, dict] = {}  # {股票代码: 元数据}
         self.model_dictionary: dict[str, Any] = {}  # {文件名: 模型对象}
         self.meta_data_dictionary: dict[str, dict[str, Any]] = {}  # 额外元数据存储
         self.model_return_values: dict[str, pl.DataFrame] = {}  # 模型预测返回值存储
@@ -47,7 +47,7 @@ class StockaiDataDrawer:
 
         # 文件路径
         self.historic_predictions_path = full_path / "historic_predictions.parquet"
-        self.pair_dictionary_path = full_path / "pair_dictionary.json"
+        self.symbol_dictionary_path = full_path / "symbol_dictionary.json"
 
         # 回测实时模型模式
         self.backtest_live_models = config.get("backtest_live_models", False)
@@ -59,8 +59,8 @@ class StockaiDataDrawer:
         self.training_queue: dict[str, int] = {}
         self.old_DBSCAN_eps: dict[str, float] = {}
 
-        # 空的pair_dict模板
-        self.empty_pair_dict: dict = {
+        # 空的symbol_dict模板
+        self.empty_symbol_dict: dict = {
             "model_filename": "",
             "trained_timestamp": 0,
             "data_path": "",
@@ -78,62 +78,62 @@ class StockaiDataDrawer:
     def _load_from_disk(self) -> None:
         """从磁盘加载已有数据"""
         # 加载股票元数据
-        data = load_json(self.pair_dictionary_path)
+        data = load_json(self.symbol_dictionary_path)
         if data:
-            self.pair_dict = data
-            logger.info(f"已加载 {len(self.pair_dict)} 只股票的元数据")
+            self.symbol_dict = data
+            logger.info(f"已加载 {len(self.symbol_dict)} 只股票的元数据")
 
         # 加载预测历史
         df = load_parquet(self.historic_predictions_path)
         if df is not None:
-            for pair in df["pair"].unique().to_list():
-                self.historic_predictions[pair] = df.filter(pl.col("pair") == pair)
+            for symbol in df["symbol"].unique().to_list():
+                self.historic_predictions[symbol] = df.filter(pl.col("symbol") == symbol)
             logger.info(f"已加载 {len(self.historic_predictions)} 只股票的历史预测")
 
-    def _generate_model_filename(self, pair: str, timestamp: int) -> str:
+    def _generate_model_filename(self, symbol: str, timestamp: int) -> str:
         """生成模型文件名"""
-        safe_pair = pair.replace(".", "_")
-        return f"sub-train-{safe_pair}_{timestamp}"
+        safe_symbol = symbol.replace(".", "_")
+        return f"sub-train-{safe_symbol}_{timestamp}"
 
-    def get_pair_dict_info(self, pair: str) -> tuple[str, int]:
+    def get_symbol_dict_info(self, symbol: str) -> tuple[str, int]:
         """
         获取指定股票的模型信息
 
         参数:
-            pair: 股票代码
+            symbol: 股票代码
 
         返回:
             (model_filename, trained_timestamp)
         """
-        pair_info = self.pair_dict.get(pair)
-        if pair_info:
-            return pair_info["model_filename"], pair_info["trained_timestamp"]
+        symbol_info = self.symbol_dict.get(symbol)
+        if symbol_info:
+            return symbol_info["model_filename"], symbol_info["trained_timestamp"]
         else:
-            # 初始化新的pair_dict项
-            self.pair_dict[pair] = self.empty_pair_dict.copy()
+            # 初始化新的symbol_dict项
+            self.symbol_dict[symbol] = self.empty_symbol_dict.copy()
             return "", 0
 
-    def set_pair_dict_info(self, metadata: dict) -> None:
+    def set_symbol_dict_info(self, metadata: dict) -> None:
         """
         设置股票元数据（如果不存在）
 
         参数:
-            metadata: 包含pair等信息的字典
+            metadata: 包含symbol等信息的字典
         """
-        pair = metadata.get("pair")
-        if pair and pair not in self.pair_dict:
-            self.pair_dict[pair] = self.empty_pair_dict.copy()
+        symbol = metadata.get("symbol")
+        if symbol and symbol not in self.symbol_dict:
+            self.symbol_dict[symbol] = self.empty_symbol_dict.copy()
 
-    def save_model(self, pair: str, model: Any, timestamp: int) -> None:
+    def save_model(self, symbol: str, model: Any, timestamp: int) -> None:
         """
         保存模型到磁盘
 
         参数:
-            pair: 股票代码
+            symbol: 股票代码
             model: 模型对象
             timestamp: 时间戳
         """
-        filename = self._generate_model_filename(pair, timestamp)
+        filename = self._generate_model_filename(symbol, timestamp)
         model_path = self.full_path / filename
         model_path.mkdir(parents=True, exist_ok=True)
 
@@ -144,31 +144,31 @@ class StockaiDataDrawer:
         # 缓存到内存
         self.model_dictionary[filename] = model
 
-        # 更新元数据（使用empty_pair_dict作为模板）
-        self.pair_dict[pair] = self.empty_pair_dict.copy()
-        self.pair_dict[pair].update({
+        # 更新元数据（使用empty_symbol_dict作为模板）
+        self.symbol_dict[symbol] = self.empty_symbol_dict.copy()
+        self.symbol_dict[symbol].update({
             "model_filename": filename,
             "trained_timestamp": timestamp,
             "data_path": str(model_path),
         })
-        save_json(self.pair_dict, self.pair_dictionary_path)
+        save_json(self.symbol_dict, self.symbol_dictionary_path)
 
-        logger.info(f"模型已保存: {filename} ({pair})")
+        logger.info(f"模型已保存: {filename} ({symbol})")
 
-    def load_model(self, pair: str) -> Any:
+    def load_model(self, symbol: str) -> Any:
         """
         加载模型（优先从内存缓存）
 
         参数:
-            pair: 股票代码
+            symbol: 股票代码
 
         返回:
             模型对象
         """
-        if pair not in self.pair_dict:
-            raise ValueError(f"未找到 {pair} 的模型")
+        if symbol not in self.symbol_dict:
+            raise ValueError(f"未找到 {symbol} 的模型")
 
-        filename = self.pair_dict[pair]["model_filename"]
+        filename = self.symbol_dict[symbol]["model_filename"]
 
         # 检查内存缓存
         if filename in self.model_dictionary:
@@ -181,21 +181,21 @@ class StockaiDataDrawer:
 
         model = joblib.load(model_path)
         self.model_dictionary[filename] = model
-        logger.info(f"模型已加载: {filename} ({pair})")
+        logger.info(f"模型已加载: {filename} ({symbol})")
 
         return model
 
-    def append_model_predictions(self, pair: str, predictions: pl.DataFrame) -> None:
+    def append_model_predictions(self, symbol: str, predictions: pl.DataFrame) -> None:
         """
         追加预测结果到历史 (FreqAI风格)
 
         参数:
-            pair: 股票代码
+            symbol: 股票代码
             predictions: 预测结果DataFrame
         """
-        if pair in self.historic_predictions:
+        if symbol in self.historic_predictions:
             # 对齐列结构：确保两个DataFrame有相同的列
-            existing_df = self.historic_predictions[pair]
+            existing_df = self.historic_predictions[symbol]
             all_cols = set(existing_df.columns) | set(predictions.columns)
 
             # 为缺失的列补空值
@@ -208,18 +208,18 @@ class StockaiDataDrawer:
             # 确保列顺序一致
             predictions = predictions.select(existing_df.columns)
 
-            self.historic_predictions[pair] = pl.concat(
+            self.historic_predictions[symbol] = pl.concat(
                 [existing_df, predictions]
             )
             # 按 datetime 去重，保留最新记录
-            self.historic_predictions[pair] = (
-                self.historic_predictions[pair]
+            self.historic_predictions[symbol] = (
+                self.historic_predictions[symbol]
                 .sort("datetime", descending=True)
                 .unique(subset=["datetime"], keep="first")
                 .sort("datetime")
             )
         else:
-            self.historic_predictions[pair] = predictions
+            self.historic_predictions[symbol] = predictions
 
         # 持久化到磁盘
         self.save_historic_predictions_to_disk()
@@ -234,7 +234,7 @@ class StockaiDataDrawer:
 
     def get_historic_predictions(
         self,
-        pair: str,
+        symbol: str,
         start: Optional[datetime] = None,
         end: Optional[datetime] = None,
     ) -> Optional[pl.DataFrame]:
@@ -242,17 +242,17 @@ class StockaiDataDrawer:
         获取历史预测
 
         参数:
-            pair: 股票代码
+            symbol: 股票代码
             start: 开始时间（可选）
             end: 结束时间（可选）
 
         返回:
             预测历史DataFrame
         """
-        if pair not in self.historic_predictions:
+        if symbol not in self.historic_predictions:
             return None
 
-        df = self.historic_predictions[pair]
+        df = self.historic_predictions[symbol]
 
         if start:
             df = df.filter(pl.col("datetime") >= start)
@@ -261,42 +261,42 @@ class StockaiDataDrawer:
 
         return df.sort("datetime")
 
-    def should_retrain(self, pair: str, max_age_days: int = 30) -> bool:
+    def should_retrain(self, symbol: str, max_age_days: int = 30) -> bool:
         """
         检查是否需要重新训练
 
         参数:
-            pair: 股票代码
+            symbol: 股票代码
             max_age_days: 模型最大年龄（天）
 
         返回:
             True 如果需要重新训练
         """
-        if pair not in self.pair_dict:
+        if symbol not in self.symbol_dict:
             return True
 
         if self.backtest_live_models:
-            logger.info(f"{pair}: 回测实时模型模式，跳过重新训练")
+            logger.info(f"{symbol}: 回测实时模型模式，跳过重新训练")
             return False
 
-        last_trained = self.pair_dict[pair].get("trained_timestamp", 0)
+        last_trained = self.symbol_dict[symbol].get("trained_timestamp", 0)
         age_days = (get_timestamp() - last_trained) / 86400
 
         return age_days > max_age_days
 
-    def update_metric_tracker(self, metric: str, value: float, pair: str) -> None:
+    def update_metric_tracker(self, metric: str, value: float, symbol: str) -> None:
         """
         更新指标追踪器
 
         参数:
             metric: 指标名称
             value: 指标值
-            pair: 股票代码
+            symbol: 股票代码
         """
-        if pair not in self.metric_tracker:
-            self.metric_tracker[pair] = {}
-        self.metric_tracker[pair][metric] = value
-        logger.debug(f"{pair}: 指标 {metric} = {value:.4f}")
+        if symbol not in self.metric_tracker:
+            self.metric_tracker[symbol] = {}
+        self.metric_tracker[symbol][metric] = value
+        logger.debug(f"{symbol}: 指标 {metric} = {value:.4f}")
 
     def np_encoder(self, obj):
         """numpy 类型编码器，用于 JSON 序列化"""
@@ -305,7 +305,7 @@ class StockaiDataDrawer:
         return obj
 
     def set_initial_return_values(
-        self, pair: str, pred_df: pl.DataFrame, dataframe: pl.DataFrame
+        self, symbol: str, pred_df: pl.DataFrame, dataframe: pl.DataFrame
     ) -> None:
         """
         设置初始返回值到历史预测DataFrame
@@ -323,9 +323,9 @@ class StockaiDataDrawer:
             if col not in ["date_pred", "datetime"]:
                 new_pred = new_pred.with_columns([pl.lit(None).alias(col)])
 
-        hist_preds = self.historic_predictions.get(pair, pl.DataFrame()).clone()
+        hist_preds = self.historic_predictions.get(symbol, pl.DataFrame()).clone()
         if len(hist_preds) == 0:
-            self.model_return_values[pair] = new_pred
+            self.model_return_values[symbol] = new_pred
             return
 
         # 合并历史预测
@@ -342,26 +342,26 @@ class StockaiDataDrawer:
         # 用0填充缺失值
         df_concat = df_concat.fill_null(0).fill_nan(0)
 
-        self.historic_predictions[pair] = df_concat
-        self.model_return_values[pair] = df_concat.tail(len(dataframe))
+        self.historic_predictions[symbol] = df_concat
+        self.model_return_values[symbol] = df_concat.tail(len(dataframe))
 
     def attach_return_values_to_return_dataframe(
-        self, pair: str, dataframe: pl.DataFrame
+        self, symbol: str, dataframe: pl.DataFrame
     ) -> pl.DataFrame:
         """
         将返回值附加到策略DataFrame
 
         参数:
-            pair: 股票代码
+            symbol: 股票代码
             dataframe: 策略DataFrame
 
         返回:
             附加了返回值的DataFrame
         """
-        if pair not in self.model_return_values:
+        if symbol not in self.model_return_values:
             return dataframe
 
-        df = self.model_return_values[pair]
+        df = self.model_return_values[symbol]
 
         # 保留原始DataFrame中不以 & 开头的列
         to_keep = [col for col in dataframe.columns if not col.startswith("&")]
@@ -430,22 +430,22 @@ class StockaiDataDrawer:
             result = pattern.match(str(directory.name))
             if result is None:
                 continue
-            coin = result.group(1)
+            symbol = result.group(1)
             timestamp = result.group(2)
 
-            if coin not in delete_dict:
-                delete_dict[coin] = {}
-                delete_dict[coin]["num_folders"] = 1
-                delete_dict[coin]["timestamps"] = {int(timestamp): directory}
+            if symbol not in delete_dict:
+                delete_dict[symbol] = {}
+                delete_dict[symbol]["num_folders"] = 1
+                delete_dict[symbol]["timestamps"] = {int(timestamp): directory}
             else:
-                delete_dict[coin]["num_folders"] += 1
-                delete_dict[coin]["timestamps"][int(timestamp)] = directory
+                delete_dict[symbol]["num_folders"] += 1
+                delete_dict[symbol]["timestamps"][int(timestamp)] = directory
 
-        for coin in delete_dict:
-            if delete_dict[coin]["num_folders"] > num_keep:
+        for symbol in delete_dict:
+            if delete_dict[symbol]["num_folders"] > num_keep:
                 import collections
                 sorted_dict = collections.OrderedDict(
-                    sorted(delete_dict[coin]["timestamps"].items())
+                    sorted(delete_dict[symbol]["timestamps"].items())
                 )
                 num_delete = len(sorted_dict) - num_keep
                 deleted = 0

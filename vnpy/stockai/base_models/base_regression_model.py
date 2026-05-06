@@ -33,7 +33,7 @@ class BaseRegressionModel(IStockaiModel):
     def train(
         self,
         df: pl.DataFrame,
-        pair: str,
+        symbol: str,
         dk: StockaiDataKitchen,
     ) -> Any:
         """
@@ -51,13 +51,13 @@ class BaseRegressionModel(IStockaiModel):
 
         参数:
             df: 已包含特征 (%-前缀) 和标签 (&-前缀) 的 DataFrame
-            pair: 股票代码
+            symbol: 股票代码
             dk: 数据厨房
 
         返回:
             训练好的模型
         """
-        logger.info(f"开始训练: {pair}")
+        logger.info(f"开始训练: {symbol}")
 
         # 1. 识别特征和标签
         dk.find_features(df)
@@ -84,7 +84,7 @@ class BaseRegressionModel(IStockaiModel):
         dk.label_pipeline = self.define_label_pipeline()
 
         # 5. 拟合管道 (datasieve 需要设置 feature_list)
-        logger.info(f"{pair}: 拟合特征管道...")
+        logger.info(f"{symbol}: 拟合特征管道...")
         dk.feature_pipeline.feature_list = dk.training_features_list
         dk.feature_pipeline.fit(data_dict["train_features"])
         # 更新特征列表（VarianceThreshold 可能移除了一些特征）
@@ -93,7 +93,7 @@ class BaseRegressionModel(IStockaiModel):
         # 检查标签数据
         train_labels_raw = data_dict["train_labels"]
         if np.isnan(train_labels_raw).any() or np.isinf(train_labels_raw).any():
-            logger.error(f"{pair}: 训练标签包含 NaN/inf，将被替换为 0")
+            logger.error(f"{symbol}: 训练标签包含 NaN/inf，将被替换为 0")
             train_labels_raw = np.nan_to_num(train_labels_raw, nan=0.0, posinf=0.0, neginf=0.0)
             data_dict["train_labels"] = train_labels_raw
 
@@ -122,11 +122,10 @@ class BaseRegressionModel(IStockaiModel):
         logger.info(f"训练: {len(X_train)} 样本, {X_train.shape[1]} 特征")
         model = self.fit(data_dict, dk)
 
-        # 8. 保存模型和数据 (使用 coin 参数名以匹配 FreqAI 风格)
-        coin = pair
-        self.save_data(model, coin, dk)
+        # 8. 保存模型和数据 (使用 symbol 参数名)
+        self.save_data(model, symbol, dk)
 
-        logger.info(f"训练完成: {pair}")
+        logger.info(f"训练完成: {symbol}")
         return model
 
     def predict(
@@ -155,13 +154,13 @@ class BaseRegressionModel(IStockaiModel):
             - predictions_df: 预测结果 DataFrame (包含 datetime, prediction)
             - do_predict: numpy 数组 (1=可预测, 0=跳过)
         """
-        pair = dk.pair
+        symbol = dk.symbol
 
         # 1. 从当前数据识别特征 (FreqAI 风格)
         dk.find_features(df)
 
         # 2. 加载管道和元数据 (必须先加载，确保使用训练时的特征列表)
-        self._load_pipelines(pair, dk)
+        self._load_pipelines(symbol, dk)
 
         # 3. 过滤特征 (预测模式)
         # 关键: 使用从 metadata 加载的 training_features_list，而不是重新识别的
@@ -189,7 +188,7 @@ class BaseRegressionModel(IStockaiModel):
 
         # 5. 预测 (使用 self.model，在 start 方法中已加载)
         if self.model is None:
-            raise ValueError(f"{pair}: 模型未加载，请先调用 start() 或加载模型")
+            raise ValueError(f"{symbol}: 模型未加载，请先调用 start() 或加载模型")
         predictions = self.model.predict(X)
 
         # 6. 反向转换 (datasieve Pipeline 返回 (data, outliers, extra))
@@ -198,7 +197,7 @@ class BaseRegressionModel(IStockaiModel):
             predictions_inverse, _, _ = dk.label_pipeline.inverse_transform(predictions_reshaped)
             predictions = predictions_inverse.ravel()
         except Exception as e:
-            logger.error(f"{pair}: 标签管道 inverse_transform 失败: {e}")
+            logger.error(f"{symbol}: 标签管道 inverse_transform 失败: {e}")
             raise
 
         # 7. 构建结果 - 列名使用标签列名（FreqAI 风格）
@@ -215,7 +214,7 @@ class BaseRegressionModel(IStockaiModel):
         valid_mask = np.isfinite(predictions)
         do_predict = do_predict & valid_mask.astype(int)
 
-        logger.info(f"预测完成: {pair}, {len(result_df)} 样本, {do_predict.sum()} 有效")
+        logger.info(f"预测完成: {symbol}, {len(result_df)} 样本, {do_predict.sum()} 有效")
 
         return result_df, do_predict
 
@@ -304,7 +303,7 @@ class BaseRegressionModel(IStockaiModel):
 
     def _save_model_and_pipelines(
         self,
-        pair: str,
+        symbol: str,
         model: Any,
         dk: StockaiDataKitchen,
     ) -> None:
@@ -312,10 +311,10 @@ class BaseRegressionModel(IStockaiModel):
         from ..utils import get_timestamp
 
         timestamp = get_timestamp()
-        dk.set_paths(pair, timestamp)
+        dk.set_paths(symbol, timestamp)
 
         # 保存模型
-        self.dd.save_model(pair, model, timestamp)
+        self.dd.save_model(symbol, model, timestamp)
 
         # 保存管道
         if dk.feature_pipeline:
@@ -326,7 +325,7 @@ class BaseRegressionModel(IStockaiModel):
         # 保存特征列表
         import json
         metadata = {
-            "pair": pair,
+            "symbol": symbol,
             "timestamp": timestamp,
             "training_features_list": dk.training_features_list,
             "label_list": dk.label_list,
@@ -335,28 +334,28 @@ class BaseRegressionModel(IStockaiModel):
             json.dump(metadata, f, indent=2)
 
         # 更新 meta_data_dictionary (FreqAI风格)
-        if pair not in self.dd.meta_data_dictionary:
-            self.dd.meta_data_dictionary[pair] = {}
-        self.dd.meta_data_dictionary[pair]["metadata"] = metadata
-        self.dd.meta_data_dictionary[pair]["feature_pipeline"] = dk.feature_pipeline
-        self.dd.meta_data_dictionary[pair]["label_pipeline"] = dk.label_pipeline
+        if symbol not in self.dd.meta_data_dictionary:
+            self.dd.meta_data_dictionary[symbol] = {}
+        self.dd.meta_data_dictionary[symbol]["metadata"] = metadata
+        self.dd.meta_data_dictionary[symbol]["feature_pipeline"] = dk.feature_pipeline
+        self.dd.meta_data_dictionary[symbol]["label_pipeline"] = dk.label_pipeline
 
-    def _load_pipelines(self, pair: str, dk: StockaiDataKitchen) -> None:
+    def _load_pipelines(self, symbol: str, dk: StockaiDataKitchen) -> None:
         """加载管道和元数据"""
-        if pair not in self.dd.pair_dict:
-            raise ValueError(f"未找到 {pair} 的模型")
+        if symbol not in self.dd.symbol_dict:
+            raise ValueError(f"未找到 {symbol} 的模型")
 
-        filename = self.dd.pair_dict[pair]["model_filename"]
+        filename = self.dd.symbol_dict[symbol]["model_filename"]
         model_path = self.dd.full_path / filename
 
         # 优先从内存中的 meta_data_dictionary 加载 (FreqAI风格)
-        if pair in self.dd.meta_data_dictionary:
-            meta_dict = self.dd.meta_data_dictionary[pair]
+        if symbol in self.dd.meta_data_dictionary:
+            meta_dict = self.dd.meta_data_dictionary[symbol]
             if "metadata" in meta_dict:
                 dk.training_features_list = meta_dict["metadata"].get("training_features_list", [])
                 dk.label_list = meta_dict["metadata"].get("label_list", [])
                 logger.info(
-                    f"{pair}: 从内存加载特征列表 "
+                    f"{symbol}: 从内存加载特征列表 "
                     f"({len(dk.training_features_list)} 个特征): {dk.training_features_list[:5]}..."
                 )
             if "feature_pipeline" in meta_dict:
@@ -374,11 +373,11 @@ class BaseRegressionModel(IStockaiModel):
             dk.training_features_list = metadata.get("training_features_list", [])
             dk.label_list = metadata.get("label_list", [])
             logger.info(
-                f"{pair}: 从 metadata 加载特征列表 "
+                f"{symbol}: 从 metadata 加载特征列表 "
                 f"({len(dk.training_features_list)} 个特征): {dk.training_features_list[:5]}..."
             )
         else:
-            raise ValueError(f"{pair}: 未找到 metadata.json，无法加载特征列表")
+            raise ValueError(f"{symbol}: 未找到 metadata.json，无法加载特征列表")
 
         # 加载管道
         fp_path = model_path / "feature_pipeline.pkl"
@@ -387,9 +386,9 @@ class BaseRegressionModel(IStockaiModel):
         if fp_path.exists():
             dk.feature_pipeline = joblib.load(fp_path)
         else:
-            raise ValueError(f"{pair}: 未找到 feature_pipeline.pkl")
+            raise ValueError(f"{symbol}: 未找到 feature_pipeline.pkl")
 
         if lp_path.exists():
             dk.label_pipeline = joblib.load(lp_path)
         else:
-            raise ValueError(f"{pair}: 未找到 label_pipeline.pkl")
+            raise ValueError(f"{symbol}: 未找到 label_pipeline.pkl")

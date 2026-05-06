@@ -54,7 +54,7 @@ class XGBoostExtremaModel(BaseRegressionModel):
         sample_weight = data_dictionary.get("train_weights", None)
 
         # 获取增量训练模型（如果支持）
-        xgb_model = self._get_init_model(dk.pair)
+        xgb_model = self._get_init_model(dk.symbol)
 
         # 模型参数
         model = XGBRegressor(**self.model_training_params)
@@ -77,7 +77,7 @@ class XGBoostExtremaModel(BaseRegressionModel):
         self.exchange_candles = len(X)
 
         # 记录训练时间
-        self.dd.update_metric_tracker("fit_time", time_spent, dk.pair)
+        self.dd.update_metric_tracker("fit_time", time_spent, dk.symbol)
 
         logger.info(f"XGBoost 训练完成: {len(X)} 样本, 耗时 {time_spent:.2f}s")
         if hasattr(model, 'best_iteration'):
@@ -85,21 +85,21 @@ class XGBoostExtremaModel(BaseRegressionModel):
 
         return model
 
-    def _get_init_model(self, pair: str):
+    def _get_init_model(self, symbol: str):
         """获取增量训练的初始模型"""
         # XGBoost 支持增量训练，尝试从模型缓存或磁盘加载
-        if pair in self.dd.pair_dict:
+        if symbol in self.dd.symbol_dict:
             try:
                 # 尝试加载已有模型用于继续训练
-                model = self.dd.load_model(pair)
-                logger.info(f"{pair}: 加载已有模型用于增量训练")
+                model = self.dd.load_model(symbol)
+                logger.info(f"{symbol}: 加载已有模型用于增量训练")
                 return model
             except Exception as e:
-                logger.debug(f"{pair}: 无法加载已有模型用于增量训练: {e}")
+                logger.debug(f"{symbol}: 无法加载已有模型用于增量训练: {e}")
                 return None
         return None
 
-    def fit_live_predictions(self, dk: StockaiDataKitchen, pair: str) -> None:
+    def fit_live_predictions(self, dk: StockaiDataKitchen, symbol: str) -> None:
         """
         拟合实时预测 - 计算动态阈值和 DI 值分布
 
@@ -113,29 +113,29 @@ class XGBoostExtremaModel(BaseRegressionModel):
         # 初始化 exchange_candles
         # 从 model_return_values 获取（FreqAI 风格）
         if not hasattr(self, 'exchange_candles'):
-            if pair in self.dd.model_return_values:
-                self.exchange_candles = len(self.dd.model_return_values[pair])
+            if symbol in self.dd.model_return_values:
+                self.exchange_candles = len(self.dd.model_return_values[symbol])
             else:
                 self.exchange_candles = 0
 
-        historic_df = self.dd.historic_predictions.get(pair)
-        logger.info(f"{pair}: 进入实时预测预热流程")
+        historic_df = self.dd.historic_predictions.get(symbol)
+        logger.info(f"{symbol}: 进入实时预测预热流程")
         if historic_df is None or len(historic_df) == 0:
-            logger.info(f"{pair}: 实时预测预热中，历史数据 0/{num_candles + self.exchange_candles}")
+            logger.info(f"{symbol}: 实时预测预热中，历史数据 0/{num_candles + self.exchange_candles}")
             warmed_up = False
         else:
             # FreqAI 风格：需要 num_candles + exchange_candles 条数据
-            logger.info(f"{pair}: historic_df 行数: {len(historic_df)}, 期望数: {num_candles + self.exchange_candles} num_candles:{num_candles} exchange_candles:{self.exchange_candles}")
+            logger.info(f"{symbol}: historic_df 行数: {len(historic_df)}, 期望数: {num_candles + self.exchange_candles} num_candles:{num_candles} exchange_candles:{self.exchange_candles}")
             candle_diff = len(historic_df) - (num_candles + self.exchange_candles)
             if candle_diff < 0:
-                logger.info(f"{pair}: 实时预测预热中，还需 {abs(candle_diff)} 根K线 (当前 {len(historic_df)}/{num_candles + self.exchange_candles})")
+                logger.info(f"{symbol}: 实时预测预热中，还需 {abs(candle_diff)} 根K线 (当前 {len(historic_df)}/{num_candles + self.exchange_candles})")
                 warmed_up = False
             else:
-                logger.info(f"{pair}: 历史数据已满足预热要求。")
+                logger.info(f"{symbol}: 历史数据已满足预热要求。")
 
         if historic_df is not None and len(historic_df) > 0:
             pred_df_full = historic_df.tail(num_candles)
-            logger.info(f"{pair}: pred_df_full shape: {pred_df_full.shape if hasattr(pred_df_full, 'shape') else len(pred_df_full)} (取尾部 {num_candles} 条用于后续阈值计算)")
+            logger.info(f"{symbol}: pred_df_full shape: {pred_df_full.shape if hasattr(pred_df_full, 'shape') else len(pred_df_full)} (取尾部 {num_candles} 条用于后续阈值计算)")
      
 
             # 计算预测值的排序均值
@@ -183,9 +183,9 @@ class XGBoostExtremaModel(BaseRegressionModel):
                     dk.data["extra_returns_per_train"]["DI_value_param3"] = f[2]
                     dk.data["extra_returns_per_train"]["DI_cutoff"] = cutoff
 
-                    logger.info(f"{pair}: DI Weibull 拟合完成, cutoff={cutoff:.4f}")
+                    logger.info(f"{symbol}: DI Weibull 拟合完成, cutoff={cutoff:.4f}")
                 except Exception as e:
-                    logger.warning(f"{pair}: DI Weibull 拟合失败: {e}")
+                    logger.warning(f"{symbol}: DI Weibull 拟合失败: {e}")
                     dk.data["extra_returns_per_train"]["DI_value_param1"] = 0
                     dk.data["extra_returns_per_train"]["DI_value_param2"] = 0
                     dk.data["extra_returns_per_train"]["DI_value_param3"] = 0
@@ -225,7 +225,7 @@ class XGBoostExtremaModel(BaseRegressionModel):
                 predictions_df = predictions_df.with_columns([
                     pl.lit(float(value)).alias(col_name)
                 ])
-            logger.debug(f"{dk.pair}: 已添加 {len(extra_returns)} 个 extra_returns 列")
+            logger.debug(f"{dk.symbol}: 已添加 {len(extra_returns)} 个 extra_returns 列")
         else:
             # 添加默认阈值列
             default_thresholds = {
@@ -240,7 +240,7 @@ class XGBoostExtremaModel(BaseRegressionModel):
                 predictions_df = predictions_df.with_columns([
                     pl.lit(float(value)).alias(col_name)
                 ])
-            logger.debug(f"{dk.pair}: 已添加默认阈值列")
+            logger.debug(f"{dk.symbol}: 已添加默认阈值列")
 
         # 添加 DI_values (如果存在)
         if hasattr(dk, 'DI_values') and dk.DI_values is not None:
@@ -251,8 +251,8 @@ class XGBoostExtremaModel(BaseRegressionModel):
 
         # 保存预测到历史 (用于 fit_live_predictions 累积数据)
         hist_df = predictions_df.clone()
-        if "pair" not in hist_df.columns:
-            hist_df = hist_df.with_columns([pl.lit(dk.pair).alias("pair")])
-        self.dd.append_model_predictions(dk.pair, hist_df)
+        if "symbol" not in hist_df.columns:
+            hist_df = hist_df.with_columns([pl.lit(dk.symbol).alias("symbol")])
+        self.dd.append_model_predictions(dk.symbol, hist_df)
 
         return predictions_df, do_predict

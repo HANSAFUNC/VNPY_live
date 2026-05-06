@@ -25,17 +25,17 @@ class StockaiDataKitchen:
     注意: 数据加载由策略层完成，本类只负责管理已加载的数据
     """
 
-    def __init__(self, config: dict, pair: str, lab: Any):
+    def __init__(self, config: dict, symbol: str, lab: Any):
         """
         初始化数据厨房
 
         参数:
             config: 配置字典
-            pair: 股票代码
+            symbol: 股票代码
             lab: AlphaLabV2 实例 (仅用于获取路径等元信息)
         """
         self.config = config
-        self.pair = pair
+        self.symbol = symbol
         self.lab = lab
 
         # 路径
@@ -75,7 +75,7 @@ class StockaiDataKitchen:
         # 训练日期
         self.train_dates: pl.Series = pl.Series()
 
-        logger.debug(f"数据厨房初始化: {pair}")
+        logger.debug(f"数据厨房初始化: {symbol}")
 
     def find_features(self, df: pl.DataFrame) -> None:
         """
@@ -89,10 +89,10 @@ class StockaiDataKitchen:
         features = [c for c in column_names if "%" in c]
 
         if not features:
-            raise ValueError(f"{self.pair}: 未找到特征列（需要包含 % 的列名）")
+            raise ValueError(f"{self.symbol}: 未找到特征列（需要包含 % 的列名）")
 
         self.training_features_list = features
-        logger.info(f"{self.pair}: 识别到 {len(features)} 个特征")
+        logger.info(f"{self.symbol}: 识别到 {len(features)} 个特征")
 
     def find_labels(self, df: pl.DataFrame) -> None:
         """
@@ -105,7 +105,7 @@ class StockaiDataKitchen:
         labels = [c for c in column_names if "&" in c]
 
         self.label_list = labels
-        logger.info(f"{self.pair}: 识别到 {len(labels)} 个标签")
+        logger.info(f"{self.symbol}: 识别到 {len(labels)} 个标签")
 
     def filter_features(
         self,
@@ -133,7 +133,7 @@ class StockaiDataKitchen:
         missing_cols = [c for c in training_feature_list if c not in unfiltered_df.columns]
         if missing_cols:
             raise ValueError(
-                f"{self.pair}: 预测数据缺少特征列: {missing_cols}. "
+                f"{self.symbol}: 预测数据缺少特征列: {missing_cols}. "
                 f"期望 {len(training_feature_list)} 个特征，"
                 f"实际列数: {len(unfiltered_df.columns)}"
             )
@@ -141,7 +141,7 @@ class StockaiDataKitchen:
         # 2. 只选择指定的特征列
         filtered_df = unfiltered_df.select(training_feature_list)
 
-        logger.debug(f"{self.pair}: filter_features - 选择 {len(training_feature_list)} 个特征, "
+        logger.debug(f"{self.symbol}: filter_features - 选择 {len(training_feature_list)} 个特征, "
                      f"training_filter={training_filter}")
 
         # 3. 将 inf 替换为 NaN (FreqAI 风格)
@@ -200,13 +200,13 @@ class StockaiDataKitchen:
             n_dropped = drop_index.sum()
             if n_dropped > 0:
                 logger.info(
-                    f"{self.pair}: 训练时移除了 {n_dropped} 行包含 NaN/inf 的数据 "
+                    f"{self.symbol}: 训练时移除了 {n_dropped} 行包含 NaN/inf 的数据 "
                     f"(原始 {len(unfiltered_df)} 行)"
                 )
 
             if len(filtered_df) == 0:
                 raise ValueError(
-                    f"{self.pair}: 所有训练数据都因 NaN/inf 被移除。请检查特征计算或增加训练数据。"
+                    f"{self.symbol}: 所有训练数据都因 NaN/inf 被移除。请检查特征计算或增加训练数据。"
                 )
 
             self.data["filter_drop_index_training"] = combined_drop.astype(int)
@@ -225,7 +225,7 @@ class StockaiDataKitchen:
             n_invalid = drop_index.sum()
             if n_invalid > 0:
                 logger.info(
-                    f"{self.pair}: 预测时填充了 {n_invalid} 行 NaN/inf 数据 (共 {len(filtered_df)} 行)"
+                    f"{self.symbol}: 预测时填充了 {n_invalid} 行 NaN/inf 数据 (共 {len(filtered_df)} 行)"
                 )
 
             self.data["filter_drop_index_prediction"] = drop_index.astype(int)
@@ -270,11 +270,11 @@ class StockaiDataKitchen:
 
         # 最终检查 - 确保没有 NaN/inf
         if np.isnan(X).any() or np.isinf(X).any():
-            logger.warning(f"{self.pair}: 特征中仍有 NaN/inf，将被替换为 0")
+            logger.warning(f"{self.symbol}: 特征中仍有 NaN/inf，将被替换为 0")
             X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
 
         if np.isnan(y).any() or np.isinf(y).any():
-            logger.warning(f"{self.pair}: 标签中仍有 NaN/inf，将被替换为 0")
+            logger.warning(f"{self.symbol}: 标签中仍有 NaN/inf，将被替换为 0")
             y = np.nan_to_num(y, nan=0.0, posinf=0.0, neginf=0.0)
 
         # 计算权重
@@ -306,9 +306,9 @@ class StockaiDataKitchen:
 
         # 最终检查训练和测试集
         if np.isnan(X_train).any() or np.isinf(X_train).any():
-            raise ValueError(f"{self.pair}: 训练特征中仍有 NaN/inf")
+            raise ValueError(f"{self.symbol}: 训练特征中仍有 NaN/inf")
         if np.isnan(y_train).any() or np.isinf(y_train).any():
-            raise ValueError(f"{self.pair}: 训练标签中仍有 NaN/inf")
+            raise ValueError(f"{self.symbol}: 训练标签中仍有 NaN/inf")
 
         self.data_dictionary = {
             "train_features": X_train,
@@ -322,7 +322,7 @@ class StockaiDataKitchen:
             self.data_dictionary["test_weights"] = w_test
 
         logger.info(
-            f"{self.pair}: 训练集 {len(X_train)} 样本，测试集 {len(X_test)} 样本"
+            f"{self.symbol}: 训练集 {len(X_train)} 样本，测试集 {len(X_test)} 样本"
         )
 
         return self.data_dictionary
@@ -354,12 +354,12 @@ class StockaiDataKitchen:
                 self.data["labels_mean"][label] = float(np.nanmean(train_labels[:, i]))
                 self.data["labels_std"][label] = float(np.nanstd(train_labels[:, i])) if len(train_labels) > 1 else 1.0
 
-        logger.debug(f"{self.pair}: 标签均值/标准差已计算: {self.data['labels_mean']}")
+        logger.debug(f"{self.symbol}: 标签均值/标准差已计算: {self.data['labels_mean']}")
 
-    def set_paths(self, pair: str, timestamp: int) -> None:
+    def set_paths(self, symbol: str, timestamp: int) -> None:
         """设置数据路径"""
-        safe_pair = pair.replace(".", "_")
-        self.model_filename = f"sub-train-{safe_pair}_{timestamp}"
+        safe_symbol = symbol.replace(".", "_")
+        self.model_filename = f"sub-train-{safe_symbol}_{timestamp}"
         self.data_path = Path(self.config.get("path", "./stockai_data")) / self.model_filename
         self.data_path.mkdir(parents=True, exist_ok=True)
 
@@ -467,7 +467,7 @@ class StockaiDataKitchen:
         """
         result = pred_df.with_columns([
             pl.Series("do_predict", do_preds),
-            pl.lit(self.pair).alias("pair"),
+            pl.lit(self.symbol).alias("symbol"),
         ])
         return result
 
