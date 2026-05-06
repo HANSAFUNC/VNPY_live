@@ -71,9 +71,10 @@ class XGBoostExtremaModel(BaseRegressionModel):
         )
         time_spent = time.time() - start
 
-        # 记录训练样本数用于 fit_live_predictions 预热计算
-        # 使用单独的属性存储，不占用 model_return_values
-        self.dd.pair_dict[dk.pair]["train_samples"] = len(X)
+        # 保存训练样本数用于 fit_live_predictions 预热计算
+        # 注意：model_return_values 在 FreqAI 中是存储预测结果的，不是训练索引
+        # 训练样本数直接存入 exchange_candles 属性
+        self.exchange_candles = len(X)
 
         # 记录训练时间
         self.dd.update_metric_tracker("fit_time", time_spent, dk.pair)
@@ -86,12 +87,16 @@ class XGBoostExtremaModel(BaseRegressionModel):
 
     def _get_init_model(self, pair: str):
         """获取增量训练的初始模型"""
-        # 检查内存中是否有该pair的模型缓存
+        # XGBoost 支持增量训练，尝试从模型缓存或磁盘加载
         if pair in self.dd.pair_dict:
-            filename = self.dd.pair_dict[pair].get("model_filename", "")
-            if filename and filename in self.dd.model_dictionary:
-                logger.info(f"{pair}: 找到已缓存的模型用于增量训练")
-                return self.dd.model_dictionary[filename]
+            try:
+                # 尝试加载已有模型用于继续训练
+                model = self.dd.load_model(pair)
+                logger.info(f"{pair}: 加载已有模型用于增量训练")
+                return model
+            except Exception as e:
+                logger.debug(f"{pair}: 无法加载已有模型用于增量训练: {e}")
+                return None
         return None
 
     def fit_live_predictions(self, dk: StockaiDataKitchen, pair: str) -> None:
@@ -105,11 +110,11 @@ class XGBoostExtremaModel(BaseRegressionModel):
         warmed_up = True
         num_candles = self.config.get("fit_live_predictions_candles", 100)
 
-        # 初始化 exchange_candles（训练样本数）
+        # 初始化 exchange_candles
+        # 从 model_return_values 获取（FreqAI 风格）
         if not hasattr(self, 'exchange_candles'):
-            # 从 pair_dict 获取训练样本数
-            if pair in self.dd.pair_dict:
-                self.exchange_candles = self.dd.pair_dict[pair].get("train_samples", 0)
+            if pair in self.dd.model_return_values:
+                self.exchange_candles = len(self.dd.model_return_values[pair])
             else:
                 self.exchange_candles = 0
 
@@ -211,14 +216,6 @@ class XGBoostExtremaModel(BaseRegressionModel):
         # 调用基类的通用预测流程
         predictions_df, do_predict = super().predict(df, dk)
 
-        # 调试：检查配置 - 直接打印整个config
-
-        fit_live = self.config.get('fit_live_predictions', False)
- 
-        # 可选：调用 fit_live_predictions 更新动态阈值
-        if fit_live:
-            self.fit_live_predictions(dk, dk.pair)
-
         # 将 extra_returns_per_train 中的阈值和参数添加到预测结果
         extra_returns = dk.data.get("extra_returns_per_train", {})
         if extra_returns:
@@ -230,7 +227,7 @@ class XGBoostExtremaModel(BaseRegressionModel):
                 ])
             logger.debug(f"{dk.pair}: 已添加 {len(extra_returns)} 个 extra_returns 列")
         else:
-            # 即使没有启用 fit_live_predictions，也添加默认阈值列
+            # 添加默认阈值列
             default_thresholds = {
                 "&s-maxima_sort_threshold": 2.0,
                 "&s-minima_sort_threshold": -2.0,
@@ -256,6 +253,6 @@ class XGBoostExtremaModel(BaseRegressionModel):
         hist_df = predictions_df.clone()
         if "pair" not in hist_df.columns:
             hist_df = hist_df.with_columns([pl.lit(dk.pair).alias("pair")])
-        self.dd.append_predictions(dk.pair, hist_df)
+        self.dd.append_model_predictions(dk.pair, hist_df)
 
         return predictions_df, do_predict

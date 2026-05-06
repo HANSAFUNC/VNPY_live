@@ -185,9 +185,9 @@ class StockaiDataDrawer:
 
         return model
 
-    def append_predictions(self, pair: str, predictions: pl.DataFrame) -> None:
+    def append_model_predictions(self, pair: str, predictions: pl.DataFrame) -> None:
         """
-        追加预测结果到历史
+        追加预测结果到历史 (FreqAI风格)
 
         参数:
             pair: 股票代码
@@ -222,10 +222,10 @@ class StockaiDataDrawer:
             self.historic_predictions[pair] = predictions
 
         # 持久化到磁盘
-        self._save_predictions_to_disk()
+        self.save_historic_predictions_to_disk()
 
-    def _save_predictions_to_disk(self) -> None:
-        """将所有预测历史保存到磁盘"""
+    def save_historic_predictions_to_disk(self) -> None:
+        """将所有预测历史保存到磁盘 (FreqAI风格)"""
         if not self.historic_predictions:
             return
 
@@ -298,6 +298,12 @@ class StockaiDataDrawer:
         self.metric_tracker[pair][metric] = value
         logger.debug(f"{pair}: 指标 {metric} = {value:.4f}")
 
+    def np_encoder(self, obj):
+        """numpy 类型编码器，用于 JSON 序列化"""
+        if isinstance(obj, np.generic):
+            return obj.item()
+        return obj
+
     def set_initial_return_values(
         self, pair: str, pred_df: pl.DataFrame, dataframe: pl.DataFrame
     ) -> None:
@@ -365,3 +371,87 @@ class StockaiDataDrawer:
         result = pl.concat([result, df], how="horizontal")
 
         return result
+
+    def return_null_values_to_strategy(self, dataframe: pl.DataFrame, dk: StockaiDataKitchen) -> None:
+        """
+        构建填充0的DataFrame返回给策略（当模型不可用时）
+        """
+        dk.find_features(dataframe)
+        dk.find_labels(dataframe)
+
+        full_labels = dk.label_list + dk.unique_class_list
+
+        for label in full_labels:
+            dataframe = dataframe.with_columns([
+                pl.lit(0.0).alias(label),
+                pl.lit(0.0).alias(f"{label}_mean"),
+                pl.lit(0.0).alias(f"{label}_std"),
+            ])
+
+        dataframe = dataframe.with_columns([pl.lit(0).alias("do_predict")])
+
+        # DI值
+        ft_params = self.config.get("feature_parameters", {})
+        if ft_params.get("DI_threshold", 0) > 0:
+            dataframe = dataframe.with_columns([pl.lit(0.0).alias("DI_values")])
+
+        # 额外的返回值
+        extra_returns = dk.data.get("extra_returns_per_train", {})
+        for return_str in extra_returns:
+            dataframe = dataframe.with_columns([pl.lit(0.0).alias(return_str)])
+
+        dk.return_dataframe = dataframe
+
+    def purge_old_models(self, num_keep: int = None) -> None:
+        """
+        清理旧模型，只保留最近 num_keep 个
+
+        参数:
+            num_keep: 保留的模型数量，None 或 0 表示不清理
+        """
+        import re
+        import shutil
+
+        if num_keep is None:
+            num_keep = self.config.get("purge_old_models", 0)
+
+        if not num_keep:
+            return
+        elif isinstance(num_keep, bool):
+            num_keep = 2
+
+        model_folders = [x for x in self.full_path.iterdir() if x.is_dir()]
+
+        pattern = re.compile(r"^sub-train-(.+)_(\d{10})$")
+
+        delete_dict: dict[str, dict] = {}
+
+        for directory in model_folders:
+            result = pattern.match(str(directory.name))
+            if result is None:
+                continue
+            coin = result.group(1)
+            timestamp = result.group(2)
+
+            if coin not in delete_dict:
+                delete_dict[coin] = {}
+                delete_dict[coin]["num_folders"] = 1
+                delete_dict[coin]["timestamps"] = {int(timestamp): directory}
+            else:
+                delete_dict[coin]["num_folders"] += 1
+                delete_dict[coin]["timestamps"][int(timestamp)] = directory
+
+        for coin in delete_dict:
+            if delete_dict[coin]["num_folders"] > num_keep:
+                import collections
+                sorted_dict = collections.OrderedDict(
+                    sorted(delete_dict[coin]["timestamps"].items())
+                )
+                num_delete = len(sorted_dict) - num_keep
+                deleted = 0
+                for k, v in sorted_dict.items():
+                    if deleted >= num_delete:
+                        break
+                    logger.info(f"FreqAI 清理旧模型文件 {v}")
+                    shutil.rmtree(v)
+                    deleted += 1

@@ -122,8 +122,9 @@ class BaseRegressionModel(IStockaiModel):
         logger.info(f"训练: {len(X_train)} 样本, {X_train.shape[1]} 特征")
         model = self.fit(data_dict, dk)
 
-        # 8. 保存模型和数据
-        self.save_data(model, pair, dk)
+        # 8. 保存模型和数据 (使用 coin 参数名以匹配 FreqAI 风格)
+        coin = pair
+        self.save_data(model, coin, dk)
 
         logger.info(f"训练完成: {pair}")
         return model

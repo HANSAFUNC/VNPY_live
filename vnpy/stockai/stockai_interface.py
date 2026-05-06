@@ -114,17 +114,29 @@ class IStockaiModel(ABC):
         # 识别特征
         dk.find_features(predict_data)
 
-        # 执行预测
-        predictions_df, do_predict = self.predict(predict_data, dk)
+        # 检查是否是第一次预测（FreqAI风格）
+        first_prediction = pair not in self.dd.model_return_values
 
-        # 设置初始返回值 (用于历史预测累积)
-        if pair not in self.dd.historic_predictions:
+        if first_prediction:
+            # 第一次预测：获取完整预测
+            predictions_df, do_predict = self.predict(predict_data, dk)
+            # 设置初始返回值
             self.dd.set_initial_return_values(pair, predictions_df, predict_data)
+        else:
+            # 后续预测：只预测最新数据（为了性能）
+            # 这里可以优化为只预测最新数据
+            predictions_df, do_predict = self.predict(predict_data, dk)
+            # 调用 fit_live_predictions（只在后续预测中调用）
+            if self.config.get("fit_live_predictions", False):
+                if hasattr(self, 'fit_live_predictions'):
+                    self.fit_live_predictions(dk, pair)
+                else:
+                    logger.debug(f"{pair}: 模型不支持 fit_live_predictions")
 
         # 合并预测结果
         result_df = self._attach_predictions(predict_data, predictions_df, dk)
 
-        # 附加返回值到DataFrame (使用 model_return_values)
+        # 附加返回值到DataFrame
         result_df = self.dd.attach_return_values_to_return_dataframe(pair, result_df)
 
         return result_df
@@ -182,9 +194,19 @@ class IStockaiModel(ABC):
         # 预测
         predictions_df, do_predict = self.predict(predict_df, dk)
 
-        # 设置初始返回值 (用于历史预测累积)
-        if pair not in self.dd.historic_predictions:
+        # 检查是否是第一次预测
+        first_prediction = pair not in self.dd.model_return_values
+
+        if first_prediction:
+            # 第一次预测：设置初始返回值
             self.dd.set_initial_return_values(pair, predictions_df, predict_df)
+        else:
+            # 后续预测：调用 fit_live_predictions（如果启用）
+            if self.config.get("fit_live_predictions", False):
+                if hasattr(self, 'fit_live_predictions'):
+                    self.fit_live_predictions(dk, pair)
+                else:
+                    logger.debug(f"{pair}: 模型不支持 fit_live_predictions")
 
         # 合并结果
         result_df = self._attach_predictions(predict_df, predictions_df, dk)
@@ -326,81 +348,96 @@ class IStockaiModel(ABC):
         result = df_cleaned.join(predictions, on="datetime", how="left")
         return result
 
-    def save_data(self, model: Any, pair: str, dk: StockaiDataKitchen) -> None:
+    def save_data(self, model: Any, coin: str, dk: StockaiDataKitchen) -> None:
         """
         保存模型和相关数据到磁盘 (FreqAI风格)
 
         参数:
             model: 训练好的模型
-            pair: 股票代码
+            coin: 股票代码
             dk: 数据厨房实例
         """
         import json
+        from .utils import get_timestamp
 
-        # 保存模型
-        # 从 data_path 中提取时间戳并转换为整数
+        # 设置路径（如果还没有设置）
+        if not dk.data_path or dk.data_path.name == "." or str(dk.data_path) == ".":
+            timestamp = get_timestamp()
+            dk.set_paths(coin, timestamp)
+            logger.info(f"{coin}: 在save_data中设置路径: {dk.data_path}")
+
+        # 确保目录存在
+        dk.data_path.mkdir(parents=True, exist_ok=True)
+
+        # 从 data_path 中提取时间戳
         timestamp_str = dk.data_path.name.split("_")[-1]
         try:
             timestamp = int(timestamp_str)
         except ValueError:
-            # 如果转换失败，使用当前时间戳
-            from ..utils import get_timestamp
             timestamp = get_timestamp()
-        self.dd.save_model(pair, model, timestamp)
+        self.dd.save_model(coin, model, timestamp)
 
         # 保存管道
-        if dk.feature_pipeline:
-            joblib.dump(dk.feature_pipeline, dk.data_path / "feature_pipeline.pkl")
-        if dk.label_pipeline:
-            joblib.dump(dk.label_pipeline, dk.data_path / "label_pipeline.pkl")
+        try:
+            if dk.feature_pipeline:
+                joblib.dump(dk.feature_pipeline, dk.data_path / "feature_pipeline.pkl")
+            if dk.label_pipeline:
+                joblib.dump(dk.label_pipeline, dk.data_path / "label_pipeline.pkl")
+        except Exception as e:
+            logger.error(f"{coin}: 保存管道失败: {e}")
 
         # 构建元数据
         metadata = {
-            "pair": pair,
+            "pair": coin,
             "data_path": str(dk.data_path),
             "model_filename": dk.model_filename,
             "training_features_list": dk.training_features_list,
             "label_list": dk.label_list,
+            "training_samples": len(dk.data_dictionary.get("train_features", [])),
         }
 
         # 保存元数据
-        with open(dk.data_path / "metadata.json", "w", encoding="utf-8") as f:
-            json.dump(metadata, f, indent=2)
+        try:
+            with open(dk.data_path / "metadata.json", "w", encoding="utf-8") as f:
+                json.dump(metadata, f, indent=2)
+            logger.debug(f"{coin}: 元数据已保存到 {dk.data_path / 'metadata.json'}")
+        except Exception as e:
+            logger.error(f"{coin}: 保存元数据失败: {e}")
 
         # 更新 meta_data_dictionary (内存缓存)
-        if pair not in self.dd.meta_data_dictionary:
-            self.dd.meta_data_dictionary[pair] = {}
-        self.dd.meta_data_dictionary[pair]["metadata"] = metadata
-        self.dd.meta_data_dictionary[pair]["feature_pipeline"] = dk.feature_pipeline
-        self.dd.meta_data_dictionary[pair]["label_pipeline"] = dk.label_pipeline
+        if coin not in self.dd.meta_data_dictionary:
+            self.dd.meta_data_dictionary[coin] = {}
+        self.dd.meta_data_dictionary[coin]["metadata"] = metadata
+        self.dd.meta_data_dictionary[coin]["feature_pipeline"] = dk.feature_pipeline
+        self.dd.meta_data_dictionary[coin]["label_pipeline"] = dk.label_pipeline
 
         # 缓存模型
         self.dd.model_dictionary[dk.model_filename] = model
 
-        logger.info(f"模型和数据已保存: {pair}")
+        logger.info(f"模型和数据已保存: {coin}")
 
-    def load_data(self, pair: str, dk: StockaiDataKitchen) -> Any:
+    def load_data(self, coin: str, dk: StockaiDataKitchen) -> Any:
         """
         加载模型和相关数据 (FreqAI风格)
 
         参数:
-            pair: 股票代码
+            coin: 股票代码
             dk: 数据厨房实例
 
         返回:
             加载的模型
         """
-        if pair not in self.dd.pair_dict:
-            raise ValueError(f"未找到 {pair} 的模型元数据")
+        if coin not in self.dd.pair_dict:
+            raise ValueError(f"未找到 {coin} 的模型元数据")
 
-        filename = self.dd.pair_dict[pair]["model_filename"]
+        filename = self.dd.pair_dict[coin]["model_filename"]
         dk.model_filename = filename
-        dk.data_path = Path(self.dd.pair_dict[pair]["data_path"])
+        dk.data_path = Path(self.dd.pair_dict[coin]["data_path"])
 
         # 优先从内存加载 (meta_data_dictionary)
-        if pair in self.dd.meta_data_dictionary:
-            logger.info(f"{pair}: 从内存缓存加载模型数据")
-            meta_dict = self.dd.meta_data_dictionary[pair]
+        if coin in self.dd.meta_data_dictionary:
+            logger.info(f"{coin}: 从内存缓存加载模型数据")
+            meta_dict = self.dd.meta_data_dictionary[coin]
             if "metadata" in meta_dict:
                 dk.training_features_list = meta_dict["metadata"].get("training_features_list", [])
                 dk.label_list = meta_dict["metadata"].get("label_list", [])
@@ -410,9 +447,9 @@ class IStockaiModel(ABC):
                 dk.label_pipeline = meta_dict["label_pipeline"]
 
             # 从内存缓存获取模型
-            if pair in self.dd.model_dictionary:
-                return self.dd.model_dictionary[pair]
+            if coin in self.dd.model_dictionary:
+                return self.dd.model_dictionary[coin]
 
         # 从磁盘加载模型
-        model = self.dd.load_model(pair)
+        model = self.dd.load_model(coin)
         return model
