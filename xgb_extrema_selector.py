@@ -41,6 +41,8 @@ class MockStrategy:
 
     def populate_indicators(self, dataframe: pd.DataFrame, metadata: dict) -> pd.DataFrame:
         """特征工程入口 - 由策略实现"""
+        symbol = metadata["pair"]
+        logger.info(f"{symbol} :{len(dataframe)}")
         return dataframe
 
     def set_freqai_targets(self, dataframe: pd.DataFrame) -> pd.DataFrame:
@@ -758,7 +760,7 @@ def main():
         lab=lab,
         name="300_xgb_extrema",
         start="2026-04-01",         # 回测开始
-        end="2026-04-30",           # 回测结束
+        end="2026-03-01",           # 回测结束
         config=config,
     )
 
