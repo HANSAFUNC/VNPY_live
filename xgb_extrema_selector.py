@@ -163,11 +163,31 @@ class XGBoostExtremaSelector:
 
     def _build_stockai_config(self) -> dict:
         """构建 StockAI 配置 - FreqAI 风格"""
+        from vnpy.stockai.utils import create_full_timerange
+
+        # 计算完整时间范围字符串
+        full_start, full_end = create_full_timerange(
+            self.start, self.end, self.train_period_days
+        )
+        timerange_str = f"{full_start.replace('-', '')}-{full_end.replace('-', '')}"
+
         return {
+            "freqai_backtest_live_models":True,
+            # === FIX: 添加 timerange 配置 ===
+            "timerange": timerange_str,
             "freqai": {
                 "path": str(self.stockai_path),
                 "identifier": f"{self.lab.index_code}_{self.name}",
                 "interval": self.interval.value if hasattr(self.interval, 'value') else str(self.interval),
+                "live_retrain_hours": 24,
+                "extra_returns_per_train": {
+                    "DI_value_param1": 0,
+                    "DI_value_param2": 0,
+                    "DI_value_param3": 0,
+                    "DI_cutoff": 2,
+                    "&s-minima_sort_threshold": -2,
+                    "&s-maxima_sort_threshold": 2,
+                },
                 "feature_parameters": {
                     "periods": self.config.periods,
                     "label_period_candles": self.config.label_period_candles,
@@ -193,12 +213,15 @@ class XGBoostExtremaSelector:
                     "max_depth": self.config.max_depth,
                     "n_estimators": self.config.n_estimators,
                     "early_stopping_rounds": self.config.early_stopping_rounds,
+                    "verbosity": 0
                 },
                 "data_split_parameters": {
                     "test_size": self.config.test_size,
                     "shuffle": self.config.shuffle,
                 },
                 "train_period_days": self.train_period_days,
+                # === FIX: 添加 backtest_period_days 到配置 ===
+                "backtest_period_days": self.config.backtest_period_days,
                 # 回测实时模型模式
                 "backtest_live_models": self.config.backtest_live_models,
                 # 重新训练间隔
@@ -501,6 +524,12 @@ class XGBoostExtremaSelector:
             self.start, self.end, self.train_period_days
         )
 
+        logger.info(f"[DEBUG] split_timerange 参数:")
+        logger.info(f"  full_start={full_start}, full_end={full_end}")
+        logger.info(f"  train_period_days={self.train_period_days}")
+        logger.info(f"  backtest_period_days={self.config.backtest_period_days}")
+        logger.info(f"  config 对象 id={id(self.config)}")
+
         # 创建临时 DataKitchen 用于分割
         temp_dk = StockaiDataKitchen(self.stockai_config, False, "TEMP")
         train_ranges, predict_ranges = temp_dk.split_timerange(
@@ -509,22 +538,25 @@ class XGBoostExtremaSelector:
             self.config.backtest_period_days
         )
 
+        logger.info(f"\n配置参数: train_period_days={self.train_period_days}, backtest_period_days={self.config.backtest_period_days}")
         logger.info(f"\n时间窗口分割完成:")
         logger.info(f"  训练窗口数量: {len(train_ranges)}")
         logger.info(f"  预测窗口数量: {len(predict_ranges)}")
         logger.info(f"  时间范围: {full_start} ~ {full_end}")
         if len(train_ranges) > 0:
+            logger.info(f"[DEBUG] 生成的窗口:")
             for i, (tr, pr) in enumerate(zip(train_ranges, predict_ranges)):
-                # 格式化日期显示为可读格式
-                tr_start = datetime.strptime(tr[0], "%Y%m%d").strftime("%Y-%m-%d")
-                tr_end = datetime.strptime(tr[1], "%Y%m%d").strftime("%Y-%m-%d")
-                pr_start = datetime.strptime(pr[0], "%Y%m%d").strftime("%Y-%m-%d")
-                pr_end = datetime.strptime(pr[1], "%Y%m%d").strftime("%Y-%m-%d")
-                logger.info(f"    窗口 {i+1}: 训练 {tr_start}~{tr_end}, 预测 {pr_start}~{pr_end}")
+                logger.info(f"  窗口 {i+1}: 训练 {tr}, 预测 {pr}")
+                pr_start = datetime.strptime(pr[0], "%Y%m%d")
+                pr_end = datetime.strptime(pr[1], "%Y%m%d")
+                delta = (pr_end - pr_start).days
+                logger.info(f"    预测天数: {delta} 天")
 
         all_signals = []
 
         # 创建单个 StockAI 模型实例（所有窗口和股票共享 DataDrawer）
+        logger.info(f"[DEBUG] stockai_config path: {self.stockai_config.get('freqai', {}).get('path', 'NOT FOUND')}")
+        logger.info(f"[DEBUG] stockai_config keys: {list(self.stockai_config.keys())}")
         stockai_model = XGBoostExtremaModel(self.stockai_config)
 
         # 4. 滑动窗口循环
@@ -623,11 +655,6 @@ class XGBoostExtremaSelector:
                 symbol_predict_pd = convert_polars_to_pandas(symbol_predict)
                 combined_df = pd.concat([symbol_train_pd, symbol_predict_pd], ignore_index=True)
 
-                # 创建 DataKitchen 并设置 timeranges
-                dk = StockaiDataKitchen(stockai_model.config, live=False, pair=symbol)
-                dk.training_timeranges = [train_range]
-                dk.backtesting_timeranges = [predict_range]
-
                 # 创建 MockStrategy
                 strategy = MockStrategy(live_mode=False, can_short=True)
 
@@ -670,6 +697,7 @@ class XGBoostExtremaSelector:
 
         result_df = pl.concat(all_predictions).sort(["datetime", "vt_symbol"])
 
+        logger.info(result_df)
         # 生成信号（基于阈值）
         maxima_signals = result_df.filter(
             pl.col("&s-extrema") > pl.col("&s-maxima_sort_threshold")
@@ -748,7 +776,7 @@ def main():
     # 配置 - 滑动窗口回测
     config = SelectorConfig(
         top_n=100,
-        train_period_days=120,      # 每次训练用前120天
+        train_period_days=200,      # 每次训练用前120天
         extended_days=100,
         backtest_period_days=1,     # 每5天重新训练
         use_fit_live_predictions=True,
@@ -759,8 +787,8 @@ def main():
     selector = XGBoostExtremaSelector(
         lab=lab,
         name="300_xgb_extrema",
-        start="2026-04-01",         # 回测开始
-        end="2026-03-01",           # 回测结束
+        start="2026-03-02",         # 回测开始
+        end="2026-04-01",           # 回测结束
         config=config,
     )
 

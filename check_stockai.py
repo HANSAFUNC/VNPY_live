@@ -82,7 +82,14 @@ def main():
         'vnpy/stockai/stockai_interface.py',
         'vnpy/stockai/base_models/__init__.py',
         'vnpy/stockai/base_models/base_regression_model.py',
+        'vnpy/stockai/base_models/base_classifier_model.py',
         'vnpy/stockai/prediction_models/__init__.py',
+        'vnpy/stockai/prediction_models/XGBoostRegressor.py',
+        'vnpy/stockai/prediction_models/LightGBMRegressor.py',
+    ]
+
+    # 添加可选检查的旧文件
+    optional_files = [
         'vnpy/stockai/prediction_models/xgb_extrema_model.py',
     ]
 
@@ -92,6 +99,8 @@ def main():
 
     all_passed = True
 
+    # 检查必需文件
+    print("\n[Required Files]")
     for filepath in files:
         full_path = project_root / filepath
 
@@ -109,12 +118,31 @@ def main():
             all_passed = False
             continue
 
-        print(f"[PASS] {filepath}: Syntax OK")
+        print(f"[PASS] {filepath}")
 
-    print("=" * 60)
+    # 检查可选文件
+    print("\n[Optional Files]")
+    for filepath in optional_files:
+        full_path = project_root / filepath
+
+        if not full_path.exists():
+            print(f"[SKIP] {filepath}: File not found (optional)")
+            continue
+
+        syntax_ok, syntax_error = check_file_syntax(full_path)
+
+        if not syntax_ok:
+            print(f"[FAIL] {filepath}: Syntax error")
+            print(f"       Error: {syntax_error}")
+            all_passed = False
+            continue
+
+        print(f"[PASS] {filepath}")
+
+    print("\n" + "=" * 60)
 
     if all_passed:
-        print("All files passed syntax check")
+        print("All required files passed syntax check")
     else:
         print("Some files have syntax errors")
         sys.exit(1)

@@ -46,6 +46,17 @@ class StockaiDataKitchen:
         """
         self.config = config
         self.freqai_config: dict[str, Any] = config.get("freqai", {})
+
+        logger.info(f"[DEBUG] DataKitchen.__init__:")
+        logger.info(f"  pair={pair}, live={live}")
+        logger.info(f"  freqai_config keys={list(self.freqai_config.keys())}")
+        if "retrain_days" in self.freqai_config:
+            logger.info(f"  retrain_days={self.freqai_config['retrain_days']}")
+        if "backtest_period_days" in self.freqai_config:
+            logger.info(f"  backtest_period_days={self.freqai_config['backtest_period_days']}")
+        else:
+            logger.info("  [WARNING] backtest_period_days NOT FOUND in config!")
+
         self.data: dict[str, Any] = {}
         self.data_dictionary: dict[str, DataFrame] = {}
         self.pair = pair
@@ -264,6 +275,11 @@ class StockaiDataKitchen:
 
             labels_df = DataFrame()
 
+        # 重置索引以避免 InvalidIndexError
+        filtered_df = filtered_df.reset_index(drop=True)
+        if not labels_df.empty:
+            labels_df = labels_df.reset_index(drop=True)
+
         return filtered_df, labels_df
 
     def make_train_test_datasets(
@@ -296,6 +312,9 @@ class StockaiDataKitchen:
         test_size = split_params.get("test_size", 0.1)
 
         if test_size != 0:
+            # 确保索引重置
+            filtered_dataframe = filtered_dataframe.reset_index(drop=True)
+            labels = labels.reset_index(drop=True)
             (
                 train_features,
                 test_features,
@@ -304,7 +323,7 @@ class StockaiDataKitchen:
                 train_weights,
                 test_weights,
             ) = train_test_split(
-                filtered_dataframe[: filtered_dataframe.shape[0]],
+                filtered_dataframe,
                 labels,
                 weights,
                 **split_params,
@@ -397,6 +416,10 @@ class StockaiDataKitchen:
         if len(train_labels) == 0:
             return
 
+        # 确保 train_labels 是 numpy 数组
+        if isinstance(train_labels, pd.DataFrame):
+            train_labels = train_labels.to_numpy()
+
         if train_labels.ndim == 1:
             labels_to_use = self.label_list if self.label_list else ["&target"]
             label_name = labels_to_use[0] if labels_to_use else "&target"
@@ -405,8 +428,13 @@ class StockaiDataKitchen:
         else:
             labels_to_use = self.label_list if self.label_list else [f"&target_{i}" for i in range(train_labels.shape[1])]
             for i, label in enumerate(labels_to_use[:train_labels.shape[1]]):
-                self.data["labels_mean"][label] = float(np.nanmean(train_labels[:, i]))
-                self.data["labels_std"][label] = float(np.nanstd(train_labels[:, i])) if len(train_labels) > 1 else 1.0
+                # 使用 .iloc 安全访问
+                if isinstance(train_labels, pd.DataFrame):
+                    col_data = train_labels.iloc[:, i].to_numpy()
+                else:
+                    col_data = train_labels[:, i]
+                self.data["labels_mean"][label] = float(np.nanmean(col_data))
+                self.data["labels_std"][label] = float(np.nanstd(col_data)) if len(col_data) > 1 else 1.0
 
         logger.debug(f"{self.pair}: 标签均值/标准差已计算")
 
@@ -541,6 +569,12 @@ class StockaiDataKitchen:
             self.full_path / f"sub-train-{coin}_{timestamp_id}"
         )
         self.model_filename = f"cb_{coin.lower()}_{timestamp_id}"
+        # === FIX: 设置 backtesting_results_path ===
+        self.backtesting_results_path = Path(
+            self.full_path
+            / self.backtest_predictions_folder
+            / f"{self.model_filename}_prediction.feather"
+        )
 
     def check_if_new_training_required(
         self, trained_timestamp: int

@@ -207,3 +207,54 @@ def create_full_timerange(
 
     full_start = start_dt - timedelta(days=train_period_days)
     return full_start.strftime("%Y-%m-%d"), backtest_end
+
+
+def split_timerange(
+        start_date: str,
+        end_date: str,
+        train_period_days: int,
+        backtest_period_days: int,
+    ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+        """
+        将完整时间范围分割为多个训练和回测窗口 (滑动窗口)
+
+        参数:
+            start_date: 起始日期 (格式: YYYY-MM-DD)
+            end_date: 结束日期 (格式: YYYY-MM-DD)
+            train_period_days: 训练窗口天数
+            backtest_period_days: 回测窗口天数
+
+        返回:
+            (training_ranges, backtesting_ranges) - 每个元素为 (start, end) 日期字符串
+        """
+        fmt = "%Y-%m-%d"
+        start = datetime.strptime(start_date, fmt)
+        end = datetime.strptime(end_date, fmt)
+
+        training_ranges: list[tuple[str, str]] = []
+        backtesting_ranges: list[tuple[str, str]] = []
+
+        # 计算滑动步长：每次向前滑动 backtest_period_days
+        step_days = backtest_period_days
+
+        current_train_start = start
+        while True:
+            train_end = current_train_start + timedelta(days=train_period_days)
+            bt_start = train_end
+            bt_end = bt_start + timedelta(days=backtest_period_days)
+
+            # 如果预测期超出数据范围，结束
+            if bt_start >= end:
+                break
+
+            # 如果预测期部分超出，仍然保留（截断到 end）
+            if bt_end > end:
+                bt_end = end
+
+            training_ranges.append((current_train_start.strftime(fmt), train_end.strftime(fmt)))
+            backtesting_ranges.append((bt_start.strftime(fmt), bt_end.strftime(fmt)))
+
+            # 滑动到下一个窗口
+            current_train_start = current_train_start + timedelta(days=step_days)
+
+        return training_ranges, backtesting_ranges
