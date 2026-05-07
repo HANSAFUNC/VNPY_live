@@ -1,12 +1,18 @@
 """StockAI 模型接口基类 - 完全复刻 FreqAI IFreqaiModel"""
 
+import threading
+import time
 from abc import ABC, abstractmethod
+from collections import deque
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Optional, Tuple
+from typing import Any, Literal, Optional
 
-import joblib
 import numpy as np
-import polars as pl
+import numpy.typing as npt
+import pandas as pd
+import psutil
+from pandas import DataFrame
 
 from vnpy.alpha.logger import logger
 
@@ -14,442 +20,799 @@ from .data_drawer import StockaiDataDrawer
 from .data_kitchen import StockaiDataKitchen
 
 
-class IStockaiModel(ABC):
+class IFreqaiModel(ABC):
     """
     StockAI 模型接口 - 完全复刻 FreqAI IFreqaiModel
 
-    职责:
-    - 管理训练和预测流程
-    - 协调 DataDrawer (持久化存储) 和 DataKitchen (临时数据)
-    - 特征计算在策略层完成，本层只识别特征列 (%-前缀) 和标签列 (&-前缀)
+    核心设计:
+    - start() 统一入口，根据 live 模式分发
+    - start_live() 实盘/模拟盘模式
+    - start_backtesting() 回测模式（滑动窗口）
+    - train/fit/predict 由子类实现
     """
 
-    def __init__(self, config: dict, lab: Any):
-        """
-        初始化模型接口
-
-        参数:
-            config: 配置字典
-            lab: AlphaLabV2 实例 (数据源)
-        """
+    def __init__(self, config: dict) -> None:
         self.config = config
-        self.lab = lab
+        self.assert_config(self.config)
+        self.freqai_info: dict[str, Any] = config.get("freqai", {})
+        self.data_split_parameters: dict[str, Any] = self.freqai_info.get(
+            "data_split_parameters", {}
+        )
+        self.model_training_parameters: dict[str, Any] = self.freqai_info.get(
+            "model_training_parameters", {}
+        )
+        self.identifier: str = self.freqai_info.get("identifier", "no_id")
+        self.retrain = False
+        self.first = True
+        self.set_full_path()
+        self.save_backtest_models: bool = self.freqai_info.get(
+            "save_backtest_models", True
+        )
+        if self.save_backtest_models:
+            logger.info("Backtesting module configured to save all models.")
 
-        # 路径设置
-        self.full_path = Path(config.get("path", "./stockai_data"))
-        self.full_path.mkdir(parents=True, exist_ok=True)
+        self.dd = StockaiDataDrawer(Path(self.full_path), self.config)
+        self.current_candle: datetime = datetime.fromtimestamp(637887600, tz=UTC)
+        self.dd.current_candle = self.current_candle
+        self.scanning = False
+        self.ft_params: dict[str, Any] = self.freqai_info.get(
+            "feature_parameters", {}
+        )
+        self.corr_pairlist: list[str] = self.ft_params.get(
+            "include_corr_pairlist", []
+        )
+        self.keras: bool = self.freqai_info.get("keras", False)
 
-        # 全局数据抽屉 (持久化存储)
-        self.dd = StockaiDataDrawer(self.full_path, config)
-
-        # 当前数据厨房 (临时，每次训练/预测时创建)
+        self.CONV_WIDTH = self.freqai_info.get("conv_width", 1)
+        self.class_names: list[str] = []
+        self.pair_it = 0
+        self.pair_it_train = 0
+        self.total_pairs = len(
+            self.config.get("exchange", {}).get("pair_whitelist", [])
+        )
+        self.train_queue: deque = self._set_train_queue()
+        self.inference_time: float = 0
+        self.train_time: float = 0
+        self.begin_time: float = 0
+        self.begin_time_train: float = 0
+        self.base_tf_seconds = self.freqai_info.get("base_tf_seconds", 86400)
+        self.continual_learning = self.freqai_info.get("continual_learning", False)
+        self.plot_features = self.ft_params.get("plot_feature_importances", 0)
+        self.corr_dataframes: dict[str, DataFrame] = {}
+        self.get_corr_dataframes: bool = True
+        self._threads: list[threading.Thread] = []
+        self._stop_event = threading.Event()
+        self.metadata: dict[str, Any] = self.dd.load_global_metadata_from_disk()
+        self.data_provider: Any = None
+        self.max_system_threads = max(int(psutil.cpu_count() * 2 - 2), 1)
+        self.can_short = True
+        self.model: Any = None
         self.dk: Optional[StockaiDataKitchen] = None
-
-        # 模型引用
-        self.model: Optional[Any] = None
-
-        # 特征参数
-        self.ft_params = config.get("feature_parameters", {})
-        self.data_split_params = config.get("data_split_parameters", {})
-        self.model_training_params = config.get("model_training_parameters", {})
-
-        # 运行模式
         self.live = False
+
+        # FreqAI 风格别名
+        self.data_split_params = self.data_split_parameters
+        self.model_training_params = self.model_training_parameters
+
+        if (
+            self.ft_params.get("principal_component_analysis", False)
+            and self.continual_learning
+        ):
+            self.ft_params.update({"principal_component_analysis": False})
+            logger.warning(
+                "User tried to use PCA with continual learning. Deactivating PCA."
+            )
+
+        self.activate_tensorboard: bool = self.freqai_info.get(
+            "activate_tensorboard", True
+        )
+        self.tb_logger: Any = None
 
         logger.info(f"StockAI 模型接口初始化完成，路径: {self.full_path}")
 
+    def __getstate__(self):
+        return {}
+
+    def assert_config(self, config: dict) -> None:
+        if not config.get("freqai", {}):
+            raise ValueError("配置中缺少 freqai 部分")
+
     def start(
+        self, dataframe: DataFrame, metadata: dict, strategy: Any
+    ) -> DataFrame:
+        """
+        统一入口，根据 live 模式分发到 start_live 或 start_backtesting
+
+        :param dataframe: 完整 DataFrame（来自策略）
+        :param metadata: {"pair": pair}
+        :param strategy: 策略对象
+        """
+        self.live = self._check_if_live(strategy)
+        self.dd.set_pair_dict_info(metadata)
+        self.data_provider = getattr(strategy, "dp", None)
+        self.can_short = getattr(strategy, "can_short", True)
+
+        if self.live:
+            self.inference_timer("start")
+            self.dk = StockaiDataKitchen(
+                self.config, self.live, metadata["pair"]
+            )
+            dk = self.start_live(dataframe, metadata, strategy, self.dk)
+            dataframe = dk.remove_features_from_df(dk.return_dataframe)
+        else:
+            self.dk = StockaiDataKitchen(
+                self.config, self.live, metadata["pair"]
+            )
+            if not self.config.get("freqai_backtest_live_models", False):
+                logger.info(
+                    f"Training {len(self.dk.training_timeranges)} timeranges"
+                )
+                dk = self.start_backtesting(
+                    dataframe, metadata, self.dk, strategy
+                )
+                dataframe = dk.remove_features_from_df(dk.return_dataframe)
+            else:
+                logger.info(
+                    "Backtesting using historic predictions (live models)"
+                )
+                dk = self.start_backtesting_from_historic_predictions(
+                    dataframe, metadata, self.dk
+                )
+                dataframe = dk.return_dataframe
+
+        self.clean_up()
+        if self.live:
+            self.inference_timer("stop", metadata["pair"])
+
+        return dataframe
+
+    def start_live(
         self,
-        train_df: pl.DataFrame,
-        predict_df: pl.DataFrame,
-        symbol: str,
-        feature_engineering_fn: Optional[callable] = None,
-    ) -> pl.DataFrame:
+        dataframe: DataFrame,
+        metadata: dict,
+        strategy: Any,
+        dk: StockaiDataKitchen,
+    ) -> StockaiDataKitchen:
         """
-        主入口 - 从策略层接收数据，执行训练/预测
+        实盘/模拟盘模式
 
-        参数:
-            train_df: 训练数据
-            predict_df: 预测数据
-            symbol: 股票代码
-            feature_engineering_fn: 可选的特征计算函数
-
-        返回:
-            带预测结果的 DataFrame
+        :param dataframe: 策略传入的 DataFrame
+        :param metadata: {"pair": pair}
+        :param strategy: 策略对象
+        :param dk: 数据厨房
         """
-        # 创建数据厨房
-        dk = StockaiDataKitchen(self.config, symbol, self.lab)
-        self.dk = dk
+        (_, trained_timestamp) = self.dd.get_pair_dict_info(metadata["pair"])
 
-        # 检查是否需要训练
-        if self.dd.should_retrain(symbol):
-            logger.info(f"{symbol}: 开始训练新模型")
+        if self.dd.historic_data:
+            logger.debug(
+                f"Updating historic data on pair {metadata['pair']}"
+            )
+            self.track_current_candle()
 
-            # 如果提供了特征计算函数，执行特征计算
-            train_data = train_df
-            if feature_engineering_fn:
-                train_data = feature_engineering_fn(train_data)
+        (_, new_trained_timerange, data_load_timerange) = (
+            dk.check_if_new_training_required(trained_timestamp)
+        )
+        stopts = (
+            new_trained_timerange.get("stopts", 0)
+            if isinstance(new_trained_timerange, dict)
+            else new_trained_timerange
+        )
+        dk.set_paths(metadata["pair"], stopts)
 
-            # 识别特征列和标签列
-            dk.find_features(train_data)
-            dk.find_labels(train_data)
+        if not self.scanning:
+            self.scanning = True
 
-            if not dk.training_features_list:
-                raise ValueError(f"{symbol}: 未找到特征列（需要%-前缀）")
-            if not dk.label_list:
-                raise ValueError(f"{symbol}: 未找到标签列（需要&-前缀）")
+        try:
+            self.model = self.dd.load_model(metadata["pair"])
+        except (ValueError, FileNotFoundError):
+            self.model = None
 
-            self.model = self.train(train_data, symbol, dk)
-        else:
-            logger.info(f"{symbol}: 加载已有模型")
-            self.model = self.dd.load_model(symbol)
-            # 预测时需要加载元数据获取特征列表
-            self._load_metadata(symbol, dk)
+        if not self.model:
+            logger.warning(
+                f"No model ready for {metadata['pair']}, "
+                "returning null values to strategy."
+            )
+            self.dd.return_null_values_to_strategy(dataframe, dk)
+            return dk
 
-        # 如果提供了特征计算函数，执行特征计算
-        predict_data = predict_df
-        if feature_engineering_fn:
-            predict_data = feature_engineering_fn(predict_data)
+        dk.find_labels(dataframe)
 
-        # 识别特征
-        dk.find_features(predict_data)
+        self.build_strategy_return_arrays(
+            dataframe, dk, metadata["pair"], trained_timestamp
+        )
 
-        # 检查是否是第一次预测（FreqAI风格）
-        first_prediction = symbol not in self.dd.model_return_values
-
-        if first_prediction:
-            # 第一次预测：获取完整预测
-            predictions_df, do_predict = self.predict(predict_data, dk)
-            # 设置初始返回值
-            self.dd.set_initial_return_values(symbol, predictions_df, predict_data)
-        else:
-            # 后续预测：只预测最新数据（为了性能）
-            # 这里可以优化为只预测最新数据
-            predictions_df, do_predict = self.predict(predict_data, dk)
-            # 调用 fit_live_predictions（只在后续预测中调用）
-            if self.config.get("fit_live_predictions", False):
-                if hasattr(self, 'fit_live_predictions'):
-                    self.fit_live_predictions(dk, symbol)
-                else:
-                    logger.debug(f"{symbol}: 模型不支持 fit_live_predictions")
-
-        # 合并预测结果
-        result_df = self._attach_predictions(predict_data, predictions_df, dk)
-
-        # 附加返回值到DataFrame
-        result_df = self.dd.attach_return_values_to_return_dataframe(symbol, result_df)
-
-        return result_df
+        return dk
 
     def start_backtesting(
         self,
-        df: pl.DataFrame,
-        symbol: str,
-        train_start: str,
-        train_end: str,
-        predict_start: str,
-        predict_end: str,
-        feature_engineering_fn: Optional[callable] = None,
-    ) -> pl.DataFrame:
+        dataframe: DataFrame,
+        metadata: dict,
+        dk: StockaiDataKitchen,
+        strategy: Any,
+    ) -> StockaiDataKitchen:
         """
-        回测入口 - 滑动窗口训练/预测
+        回测模式 - 滑动窗口
 
-        参数:
-            df: 策略层传入的完整数据 (包含特征)
-            symbol: 股票代码
-            train_start/train_end: 训练期
-            predict_start/predict_end: 预测期
-            feature_engineering_fn: 特征计算函数
-
-        返回:
-            预测期带预测结果的 DataFrame
+        :param dataframe: 策略传入的 DataFrame
+        :param metadata: {"pair": pair}
+        :param dk: 数据厨房
+        :param strategy: 策略对象
         """
-        # 创建数据厨房
-        dk = StockaiDataKitchen(self.config, symbol, self.lab)
-        self.dk = dk
+        self.pair_it += 1
+        train_it = 0
+        pair = metadata["pair"]
 
-        # 特征计算
-        if feature_engineering_fn:
-            df = feature_engineering_fn(df)
+        for tr_train, tr_backtest in zip(
+            dk.training_timeranges,
+            dk.backtesting_timeranges,
+            strict=False,
+        ):
+            (_, _) = self.dd.get_pair_dict_info(pair)
+            train_it += 1
+            total_trains = len(dk.backtesting_timeranges)
+            self.training_timerange = tr_train
 
-        # 识别特征和标签
-        dk.find_features(df)
-        dk.find_labels(df)
+            dataframe_train = dk.slice_dataframe(tr_train, dataframe)
+            dataframe_backtest = dk.slice_dataframe(tr_backtest, dataframe)
+            len_backtest_df = len(dataframe_backtest)
 
-        # 分割训练集和预测集
-        train_df = df.filter(
-            (pl.col("datetime") >= train_start) & (pl.col("datetime") < train_end)
-        )
-        predict_df = df.filter(
-            (pl.col("datetime") >= predict_start) & (pl.col("datetime") <= predict_end)
-        )
+            if not self.ensure_data_exists(
+                len_backtest_df, tr_backtest, pair
+            ):
+                continue
 
-        if len(train_df) == 0:
-            logger.warning(f"{symbol}: 训练集为空")
-            return predict_df
+            self.log_backtesting_progress(
+                tr_train, pair, train_it, total_trains
+            )
 
-        # 训练
-        self.model = self.train(train_df, symbol, dk)
+            train_end_str = tr_train[1]
+            fmt = "%Y-%m-%d" if "-" in train_end_str else "%Y%m%d"
+            timestamp_model_id = int(
+                datetime.strptime(train_end_str, fmt).timestamp()
+            )
 
-        # 预测
-        predictions_df, do_predict = self.predict(predict_df, dk)
+            dk.set_paths(pair, timestamp_model_id)
+            dk.set_new_model_names(pair, timestamp_model_id)
 
-        # 检查是否是第一次预测
-        first_prediction = symbol not in self.dd.model_return_values
+            dk.get_unique_classes_from_labels(dataframe_train)
 
-        if first_prediction:
-            # 第一次预测：设置初始返回值
-            self.dd.set_initial_return_values(symbol, predictions_df, predict_df)
+            if not self.model_exists(dk):
+                dk.find_features(dataframe_train)
+                dk.find_labels(dataframe_train)
+
+                try:
+                    self.model = self.train(dataframe_train, pair, dk)
+                except Exception as msg:
+                    logger.warning(
+                        f"Training {pair} raised exception "
+                        f"{msg.__class__.__name__}. "
+                        f"Message: {msg}, skipping.",
+                        exc_info=True,
+                    )
+                    self.model = None
+
+                self.dd.pair_dict[pair][
+                    "trained_timestamp"
+                ] = timestamp_model_id
+                if self.save_backtest_models and self.model is not None:
+                    logger.info("Saving backtest model to disk.")
+                    self.dd.save_model(
+                        pair, self.model, timestamp_model_id, dk
+                    )
+            else:
+                try:
+                    self.model = self.dd.load_model(pair)
+                except (ValueError, FileNotFoundError):
+                    self.model = None
+
+            if self.model is not None:
+                pred_df, do_preds = self.predict(dataframe_backtest, dk)
+                append_df = dk.get_predictions_to_append(
+                    pred_df, do_preds, dataframe_backtest
+                )
+                dk.append_predictions(append_df)
+                dk.save_backtesting_prediction(append_df)
+
+        self.backtesting_fit_live_predictions(dk)
+        dk.fill_predictions(dataframe)
+
+        return dk
+
+    def start_backtesting_from_historic_predictions(
+        self,
+        dataframe: DataFrame,
+        metadata: dict,
+        dk: StockaiDataKitchen,
+    ) -> StockaiDataKitchen:
+        pair = metadata["pair"]
+        dk.return_dataframe = dataframe
+        if pair in self.dd.historic_predictions:
+            saved_dataframe = self.dd.historic_predictions[pair]
+            columns_to_drop = list(
+                set(saved_dataframe.columns).intersection(
+                    dk.return_dataframe.columns
+                )
+            )
+            dk.return_dataframe = dk.return_dataframe.drop(
+                columns=list(columns_to_drop)
+            )
+            dk.return_dataframe = pd.merge(
+                dk.return_dataframe,
+                saved_dataframe,
+                how="left",
+                left_on="date",
+                right_on="date_pred",
+            )
+        return dk
+
+    def build_strategy_return_arrays(
+        self,
+        dataframe: DataFrame,
+        dk: StockaiDataKitchen,
+        pair: str,
+        trained_timestamp: int,
+    ) -> None:
+        if pair not in self.dd.model_return_values:
+            pred_df, do_preds = self.predict(dataframe, dk)
+            if pair not in self.dd.historic_predictions:
+                self.set_initial_historic_predictions(
+                    pred_df, dk, pair, dataframe
+                )
+            self.dd.set_initial_return_values(pair, pred_df, dataframe)
+
+            dk.return_dataframe = (
+                self.dd.attach_return_values_to_return_dataframe(
+                    pair, dataframe
+                )
+            )
+            return
+        elif self.dk and self.dk.check_if_model_expired(trained_timestamp):
+            pred_df = DataFrame(
+                np.zeros((2, len(dk.label_list))), columns=dk.label_list
+            )
+            do_preds = np.ones(2, dtype=np.int_) * 2
+            dk.DI_values = np.zeros(2)
+            logger.warning(
+                f"Model expired for {pair}, returning null values to "
+                "strategy. Strategy construction should take care to "
+                "consider this event with prediction == 0 and "
+                "do_predict == 2"
+            )
         else:
-            # 后续预测：调用 fit_live_predictions（如果启用）
-            if self.config.get("fit_live_predictions", False):
-                if hasattr(self, 'fit_live_predictions'):
-                    self.fit_live_predictions(dk, symbol)
-                else:
-                    logger.debug(f"{symbol}: 模型不支持 fit_live_predictions")
+            pred_df, do_preds = self.predict(
+                dataframe.iloc[-self.CONV_WIDTH :], dk, first=False
+            )
 
-        # 合并结果
-        result_df = self._attach_predictions(predict_df, predictions_df, dk)
+        if (
+            self.freqai_info.get("fit_live_predictions_candles", 0)
+            and self.live
+        ):
+            self.fit_live_predictions(dk, pair)
+        self.dd.append_model_predictions(
+            pair, pred_df, do_preds, dk, dataframe
+        )
+        dk.return_dataframe = (
+            self.dd.attach_return_values_to_return_dataframe(pair, dataframe)
+        )
 
-        # 附加返回值到DataFrame (使用 model_return_values)
-        result_df = self.dd.attach_return_values_to_return_dataframe(symbol, result_df)
+    def check_if_feature_list_matches_strategy(
+        self, dk: StockaiDataKitchen
+    ) -> None:
+        if dk.training_features_list != dk.data.get(
+            "training_features_list", dk.training_features_list
+        ):
+            raise ValueError(
+                "Trying to access pretrained model with `identifier` "
+                "but found different features furnished by current "
+                "strategy. Change `identifier` to train from scratch, or "
+                "ensure the strategy is furnishing the same features as "
+                "the pretrained model."
+            )
 
-        return result_df
+    def model_exists(self, dk: StockaiDataKitchen) -> bool:
+        if self.dd.model_type == "joblib":
+            file_type = ".joblib"
+        else:
+            file_type = ".pkl"
+
+        path_to_modelfile = Path(
+            dk.data_path / f"{dk.model_filename}_model{file_type}"
+        )
+        file_exists = path_to_modelfile.is_file()
+        if file_exists:
+            logger.info(
+                "Found model at %s", dk.data_path / dk.model_filename
+            )
+        else:
+            logger.info(
+                "Could not find model at %s",
+                dk.data_path / dk.model_filename,
+            )
+        return file_exists
+
+    def set_full_path(self) -> None:
+        path = self.freqai_info.get("path", "freqai_models")
+        self.full_path = Path(path) / self.identifier
+        self.full_path.mkdir(parents=True, exist_ok=True)
+
+    def ensure_data_exists(
+        self, len_dataframe_backtest: int, tr_backtest: Any, pair: str
+    ) -> bool:
+        if len_dataframe_backtest == 0:
+            tr_start = (
+                tr_backtest[0]
+                if isinstance(tr_backtest, tuple)
+                else str(tr_backtest)
+            )
+            tr_end = (
+                tr_backtest[1]
+                if isinstance(tr_backtest, tuple)
+                else str(tr_backtest)
+            )
+            logger.info(
+                f"No data found for pair {pair} from "
+                f"{tr_start} to {tr_end}. "
+                "Probably more than one training within the same "
+                "candle period."
+            )
+            return False
+        return True
+
+    def log_backtesting_progress(
+        self, tr_train: Any, pair: str, train_it: int, total_trains: int
+    ) -> None:
+        tr_start = (
+            tr_train[0]
+            if isinstance(tr_train, tuple)
+            else str(tr_train)
+        )
+        tr_end = (
+            tr_train[1]
+            if isinstance(tr_train, tuple)
+            else str(tr_train)
+        )
+        logger.info(
+            f"Training {pair}, {self.pair_it}/{self.total_pairs} pairs"
+            f" from {tr_start} "
+            f"to {tr_end}, {train_it}/{total_trains} "
+            "trains"
+        )
+
+    def backtesting_fit_live_predictions(
+        self, dk: StockaiDataKitchen
+    ) -> None:
+        fit_live_predictions_candles = self.freqai_info.get(
+            "fit_live_predictions_candles", 0
+        )
+        if fit_live_predictions_candles:
+            logger.info("Applying fit_live_predictions in backtesting")
+            label_columns = [
+                col
+                for col in dk.full_df.columns
+                if (
+                    col.startswith("&")
+                    and not col.endswith("_mean")
+                    and not col.endswith("_std")
+                    and col
+                    not in dk.data.get("extra_returns_per_train", {})
+                )
+            ]
+
+            for index in range(len(dk.full_df)):
+                if index >= fit_live_predictions_candles:
+                    self.dd.historic_predictions[dk.pair] = (
+                        dk.full_df.iloc[
+                            index - fit_live_predictions_candles : index
+                        ]
+                    )
+                    self.fit_live_predictions(dk, dk.pair)
+                    for label in label_columns:
+                        if dk.full_df[label].dtype == object:
+                            continue
+                        if "labels_mean" in dk.data:
+                            dk.full_df.at[
+                                index, f"{label}_mean"
+                            ] = dk.data["labels_mean"][label]
+                        if "labels_std" in dk.data:
+                            dk.full_df.at[
+                                index, f"{label}_std"
+                            ] = dk.data["labels_std"][label]
+
+                    for extra_col in dk.data.get(
+                        "extra_returns_per_train", {}
+                    ):
+                        dk.full_df.at[index, f"{extra_col}"] = dk.data[
+                            "extra_returns_per_train"
+                        ][extra_col]
+
+    def fit_live_predictions(
+        self, dk: StockaiDataKitchen, pair: str
+    ) -> None:
+        import scipy as spy
+
+        full_labels = dk.label_list + dk.unique_class_list
+
+        num_candles = self.freqai_info.get(
+            "fit_live_predictions_candles", 100
+        )
+        dk.data["labels_mean"], dk.data["labels_std"] = {}, {}
+        for label in full_labels:
+            if (
+                self.dd.historic_predictions[dk.pair][label].dtype
+                == object
+            ):
+                continue
+            f = spy.stats.norm.fit(
+                self.dd.historic_predictions[dk.pair][label].tail(
+                    num_candles
+                )
+            )
+            dk.data["labels_mean"][label] = f[0]
+            dk.data["labels_std"][label] = f[1]
+
+    def set_initial_historic_predictions(
+        self,
+        pred_df: DataFrame,
+        dk: StockaiDataKitchen,
+        pair: str,
+        strat_df: DataFrame,
+    ) -> None:
+        self.dd.historic_predictions[pair] = pred_df
+        hist_preds_df = self.dd.historic_predictions[pair]
+
+        for label in hist_preds_df.columns:
+            if hist_preds_df[label].dtype == object:
+                continue
+            hist_preds_df[f"{label}_mean"] = 0
+            hist_preds_df[f"{label}_std"] = 0
+
+        hist_preds_df["do_predict"] = 0
+
+        if self.ft_params.get("DI_threshold", 0) > 0:
+            hist_preds_df["DI_values"] = 0
+
+        for return_str in dk.data.get("extra_returns_per_train", {}):
+            hist_preds_df[return_str] = dk.data[
+                "extra_returns_per_train"
+            ][return_str]
+
+        if "high" in strat_df.columns:
+            hist_preds_df["high_price"] = strat_df["high"]
+        if "low" in strat_df.columns:
+            hist_preds_df["low_price"] = strat_df["low"]
+        if "close" in strat_df.columns:
+            hist_preds_df["close_price"] = strat_df["close"]
+        if "date" in strat_df.columns:
+            hist_preds_df["date_pred"] = strat_df["date"]
+        elif "datetime" in strat_df.columns:
+            hist_preds_df["date_pred"] = strat_df["datetime"]
+
+    def update_metadata(self, metadata: dict[str, Any]) -> None:
+        self.dd.save_global_metadata_to_disk(metadata)
+        self.metadata = metadata
+
+    def clean_up(self) -> None:
+        self.model = None
+        self.dk = None
+
+    def _on_stop(self) -> None:
+        self.dd.save_historic_predictions_to_disk()
+
+    def shutdown(self) -> None:
+        logger.info("Stopping StockAI")
+        self._stop_event.set()
+
+        self.data_provider = None
+        self._on_stop()
+
+        if self.freqai_info.get(
+            "wait_for_training_iteration_on_reload", True
+        ):
+            logger.info("Waiting on Training iteration")
+            for _thread in self._threads:
+                _thread.join()
+        else:
+            logger.warning(
+                "Breaking current training iteration because "
+                "you set wait_for_training_iteration_on_reload to False."
+            )
+
+    def inference_timer(
+        self, do: Literal["start", "stop"] = "start", pair: str = ""
+    ) -> None:
+        if do == "start":
+            self.pair_it += 1
+            self.begin_time = time.time()
+        elif do == "stop":
+            end = time.time()
+            time_spent = end - self.begin_time
+            if self.freqai_info.get("write_metrics_to_disk", False):
+                self.dd.update_metric_tracker(
+                    "inference_time", time_spent, pair
+                )
+            self.inference_time += time_spent
+            if self.pair_it == self.total_pairs:
+                logger.info(
+                    f"Total time spent inferencing pairlist "
+                    f"{self.inference_time:.2f} seconds"
+                )
+                self.pair_it = 0
+                self.inference_time = 0
+
+    def train_timer(
+        self, do: Literal["start", "stop"] = "start", pair: str = ""
+    ) -> None:
+        if do == "start":
+            self.pair_it_train += 1
+            self.begin_time_train = time.time()
+        elif do == "stop":
+            end = time.time()
+            time_spent = end - self.begin_time_train
+            if self.freqai_info.get("write_metrics_to_disk", False):
+                self.dd.collect_metrics(time_spent, pair)
+            self.train_time += time_spent
+            if self.pair_it_train == self.total_pairs:
+                logger.info(
+                    f"Total time spent training pairlist "
+                    f"{self.train_time:.2f} seconds"
+                )
+                self.pair_it_train = 0
+                self.train_time = 0
+
+    def get_init_model(self, pair: str) -> Any:
+        if (
+            pair not in self.dd.model_dictionary
+            or not self.continual_learning
+        ):
+            init_model = None
+        else:
+            init_model = self.dd.model_dictionary[pair]
+        return init_model
+
+    def track_current_candle(self) -> None:
+        if (
+            hasattr(self.dd, "current_candle")
+            and self.dd.current_candle > self.current_candle
+        ):
+            self.get_corr_dataframes = True
+            self.pair_it = 1
+            self.current_candle = self.dd.current_candle
+
+    def _set_train_queue(self) -> deque:
+        current_pairlist = self.config.get("exchange", {}).get(
+            "pair_whitelist", []
+        )
+        if not self.dd.pair_dict:
+            logger.info(
+                f"Set fresh train queue from whitelist. "
+                f"Queue: {current_pairlist}"
+            )
+            return deque(current_pairlist)
+
+        best_queue: deque = deque()
+
+        pair_dict_sorted = sorted(
+            self.dd.pair_dict.items(),
+            key=lambda k: k[1].get("trained_timestamp", 0),
+        )
+        for pair_item in pair_dict_sorted:
+            if pair_item[0] in current_pairlist:
+                best_queue.append(pair_item[0])
+        for pair_item in current_pairlist:
+            if pair_item not in best_queue:
+                best_queue.appendleft(pair_item)
+
+        logger.info(
+            f"Set existing queue from trained timestamps. "
+            f"Best approximation queue: {best_queue}"
+        )
+        return best_queue
+
+    def _check_if_live(self, strategy: Any) -> bool:
+        dp = getattr(strategy, "dp", None)
+        if dp is not None:
+            runmode = getattr(dp, "runmode", None)
+            if runmode is not None:
+                return str(runmode) in (
+                    "RunMode.DRY_RUN",
+                    "RunMode.LIVE",
+                )
+        return getattr(strategy, "live", False)
+
+    def define_data_pipeline(self, threads: int = -1) -> Any:
+        import datasieve.transforms as ds
+        from datasieve.pipeline import Pipeline
+        from datasieve.transforms import SKLearnWrapper
+        from sklearn.preprocessing import MinMaxScaler
+
+        ft_params = self.freqai_info.get("feature_parameters", {})
+        pipe_steps = [
+            ("const", ds.VarianceThreshold(threshold=0)),
+            (
+                "scaler",
+                SKLearnWrapper(MinMaxScaler(feature_range=(-1, 1))),
+            ),
+        ]
+
+        if ft_params.get("principal_component_analysis", False):
+            pipe_steps.append(("pca", ds.PCA(n_components=0.999)))
+            pipe_steps.append(
+                (
+                    "post-pca-scaler",
+                    SKLearnWrapper(
+                        MinMaxScaler(feature_range=(-1, 1))
+                    ),
+                )
+            )
+
+        if ft_params.get("use_SVM_to_remove_outliers", False):
+            svm_params = ft_params.get(
+                "svm_params", {"shuffle": False, "nu": 0.01}
+            )
+            pipe_steps.append(
+                ("svm", ds.SVMOutlierExtractor(**svm_params))
+            )
+
+        di = ft_params.get("DI_threshold", 0)
+        if di:
+            pipe_steps.append(
+                (
+                    "di",
+                    ds.DissimilarityIndex(
+                        di_threshold=di, n_jobs=threads
+                    ),
+                )
+            )
+
+        if ft_params.get("use_DBSCAN_to_remove_outliers", False):
+            pipe_steps.append(("dbscan", ds.DBSCAN(n_jobs=threads)))
+
+        sigma = ft_params.get("noise_standard_deviation", 0)
+        if sigma:
+            pipe_steps.append(("noise", ds.Noise(sigma=sigma)))
+
+        return Pipeline(pipe_steps)
+
+    def define_label_pipeline(self, threads: int = -1) -> Any:
+        from datasieve.pipeline import Pipeline
+        from datasieve.transforms import SKLearnWrapper
+        from sklearn.preprocessing import MinMaxScaler
+
+        return Pipeline(
+            [
+                (
+                    "scaler",
+                    SKLearnWrapper(
+                        MinMaxScaler(feature_range=(-1, 1))
+                    ),
+                ),
+            ]
+        )
 
     @abstractmethod
     def train(
         self,
-        df: pl.DataFrame,
-        symbol: str,
+        unfiltered_df: DataFrame,
+        pair: str,
         dk: StockaiDataKitchen,
+        **kwargs,
     ) -> Any:
-        """
-        训练模型 - 子类必须实现
-
-        参数:
-            df: 已包含特征列 (%-前缀) 和标签列 (&-前缀) 的训练数据
-            symbol: 股票代码
-            dk: 数据厨房
-
-        返回:
-            训练好的模型对象
-        """
-        pass
+        """子类实现：训练流程"""
 
     @abstractmethod
     def fit(
         self,
         data_dictionary: dict[str, Any],
         dk: StockaiDataKitchen,
+        **kwargs,
     ) -> Any:
-        """
-        实际模型拟合 - 子类必须实现
-
-        参数:
-            data_dictionary: 包含 train_features, train_labels, test_features, test_labels 的字典
-            dk: 数据厨房
-
-        返回:
-            拟合好的模型
-        """
-        pass
+        """子类实现：模型拟合"""
 
     @abstractmethod
     def predict(
         self,
-        df: pl.DataFrame,
+        unfiltered_df: DataFrame,
         dk: StockaiDataKitchen,
-    ) -> Tuple[pl.DataFrame, np.ndarray]:
-        """
-        预测 - 子类必须实现
-
-        参数:
-            df: 已包含特征列的预测数据
-            dk: 数据厨房
-
-        返回:
-            (predictions_df, do_predict)
-            - predictions_df: 预测结果 DataFrame
-            - do_predict: numpy 数组，指示哪些位置可以预测 (1) 或需要跳过 (0)
-        """
-        pass
-
-    def define_data_pipeline(self) -> Any:
-        """
-        定义特征处理管道 - 子类可覆盖
-
-        使用 datasieve Pipeline - 复刻 FreqAI
-        """
-        import datasieve.transforms as ds
-        from datasieve.pipeline import Pipeline
-        from datasieve.transforms import SKLearnWrapper
-        from sklearn.preprocessing import MinMaxScaler
-
-        return Pipeline([
-            ("variance_threshold", ds.VarianceThreshold(threshold=0)),
-            ("scaler", SKLearnWrapper(MinMaxScaler(feature_range=(-1, 1)))),
-        ])
-
-    def define_label_pipeline(self) -> Any:
-        """
-        定义标签处理管道 - 子类可覆盖
-
-        使用 datasieve Pipeline - 复刻 FreqAI
-        """
-        import datasieve.transforms as ds
-        from datasieve.pipeline import Pipeline
-        from datasieve.transforms import SKLearnWrapper
-        from sklearn.preprocessing import MinMaxScaler
-
-        return Pipeline([
-            ("scaler", SKLearnWrapper(MinMaxScaler(feature_range=(-1, 1)))),
-        ])
-
-    def _load_metadata(self, symbol: str, dk: StockaiDataKitchen) -> None:
-        """
-        从元数据加载特征列表和标签列表
-
-        参数:
-            symbol: 股票代码
-            dk: 数据厨房实例
-        """
-        if symbol not in self.dd.symbol_dict:
-            raise ValueError(f"未找到 {symbol} 的模型元数据")
-
-        filename = self.dd.symbol_dict[symbol]["model_filename"]
-        model_path = self.dd.full_path / filename
-
-        # 加载元数据
-        metadata_path = model_path / "metadata.json"
-        if metadata_path.exists():
-            import json
-            with open(metadata_path, "r", encoding="utf-8") as f:
-                metadata = json.load(f)
-            dk.training_features_list = metadata.get("training_features_list", [])
-            dk.label_list = metadata.get("label_list", [])
-            logger.info(
-                f"{symbol}: 从元数据加载了 {len(dk.training_features_list)} 个特征"
-            )
-        else:
-            raise ValueError(f"{symbol}: 未找到 metadata.json")
-
-    def _attach_predictions(
-        self,
-        df: pl.DataFrame,
-        predictions: pl.DataFrame,
-        dk: StockaiDataKitchen,
-    ) -> pl.DataFrame:
-        """将预测结果合并到原始 DataFrame"""
-        # 删除原始标签列（如果存在），避免与预测结果列名冲突
-        label_cols = dk.label_list if dk.label_list else []
-        df_cleaned = df.drop(label_cols) if label_cols else df
-
-        # 根据 datetime 合并
-        result = df_cleaned.join(predictions, on="datetime", how="left")
-        return result
-
-    def save_data(self, model: Any, symbol: str, dk: StockaiDataKitchen) -> None:
-        """
-        保存模型和相关数据到磁盘 (FreqAI风格)
-
-        参数:
-            model: 训练好的模型
-            symbol: 股票代码
-            dk: 数据厨房实例
-        """
-        import json
-        from .utils import get_timestamp
-
-        # 设置路径（如果还没有设置）
-        if not dk.data_path or dk.data_path.name == "." or str(dk.data_path) == ".":
-            timestamp = get_timestamp()
-            dk.set_paths(symbol, timestamp)
-            logger.info(f"{symbol}: 在save_data中设置路径: {dk.data_path}")
-
-        # 确保目录存在
-        dk.data_path.mkdir(parents=True, exist_ok=True)
-
-        # 从 data_path 中提取时间戳
-        timestamp_str = dk.data_path.name.split("_")[-1]
-        try:
-            timestamp = int(timestamp_str)
-        except ValueError:
-            timestamp = get_timestamp()
-        self.dd.save_model(symbol, model, timestamp)
-
-        # 保存管道
-        try:
-            if dk.feature_pipeline:
-                joblib.dump(dk.feature_pipeline, dk.data_path / "feature_pipeline.pkl")
-            if dk.label_pipeline:
-                joblib.dump(dk.label_pipeline, dk.data_path / "label_pipeline.pkl")
-        except Exception as e:
-            logger.error(f"{symbol}: 保存管道失败: {e}")
-
-        # 构建元数据
-        metadata = {
-            "symbol": symbol,
-            "data_path": str(dk.data_path),
-            "model_filename": dk.model_filename,
-            "training_features_list": dk.training_features_list,
-            "label_list": dk.label_list,
-            "training_samples": len(dk.data_dictionary.get("train_features", [])),
-        }
-
-        # 保存元数据
-        try:
-            with open(dk.data_path / "metadata.json", "w", encoding="utf-8") as f:
-                json.dump(metadata, f, indent=2)
-            logger.debug(f"{symbol}: 元数据已保存到 {dk.data_path / 'metadata.json'}")
-        except Exception as e:
-            logger.error(f"{symbol}: 保存元数据失败: {e}")
-
-        # 更新 meta_data_dictionary (内存缓存)
-        if symbol not in self.dd.meta_data_dictionary:
-            self.dd.meta_data_dictionary[symbol] = {}
-        self.dd.meta_data_dictionary[symbol]["metadata"] = metadata
-        self.dd.meta_data_dictionary[symbol]["feature_pipeline"] = dk.feature_pipeline
-        self.dd.meta_data_dictionary[symbol]["label_pipeline"] = dk.label_pipeline
-
-        # 缓存模型
-        self.dd.model_dictionary[dk.model_filename] = model
-
-        logger.info(f"模型和数据已保存: {symbol}")
-
-    def load_data(self, symbol: str, dk: StockaiDataKitchen) -> Any:
-        """
-        加载模型和相关数据 (FreqAI风格)
-
-        参数:
-            symbol: 股票代码
-            dk: 数据厨房实例
-
-        返回:
-            加载的模型
-        """
-        if symbol not in self.dd.symbol_dict:
-            raise ValueError(f"未找到 {symbol} 的模型元数据")
-
-        filename = self.dd.symbol_dict[symbol]["model_filename"]
-        dk.model_filename = filename
-        dk.data_path = Path(self.dd.symbol_dict[symbol]["data_path"])
-
-        # 优先从内存加载 (meta_data_dictionary)
-        if symbol in self.dd.meta_data_dictionary:
-            logger.info(f"{symbol}: 从内存缓存加载模型数据")
-            meta_dict = self.dd.meta_data_dictionary[symbol]
-            if "metadata" in meta_dict:
-                dk.training_features_list = meta_dict["metadata"].get("training_features_list", [])
-                dk.label_list = meta_dict["metadata"].get("label_list", [])
-            if "feature_pipeline" in meta_dict:
-                dk.feature_pipeline = meta_dict["feature_pipeline"]
-            if "label_pipeline" in meta_dict:
-                dk.label_pipeline = meta_dict["label_pipeline"]
-
-            # 从内存缓存获取模型
-            if symbol in self.dd.model_dictionary:
-                return self.dd.model_dictionary[symbol]
-
-        # 从磁盘加载模型
-        model = self.dd.load_model(symbol)
-        return model
+        **kwargs,
+    ) -> tuple[DataFrame, npt.NDArray[np.int_]]:
+        """子类实现：预测"""

@@ -7,9 +7,61 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
+import pandas as pd
 import polars as pl
 
 logger = logging.getLogger(__name__)
+
+
+def convert_polars_to_pandas(df: pl.DataFrame) -> pd.DataFrame:
+    """
+    将 polars DataFrame 转换为 pandas DataFrame
+
+    FreqAI 风格: 保留 date 列（从 datetime 列转换）
+
+    参数:
+        df: polars DataFrame
+
+    返回:
+        pandas DataFrame，包含 date 列
+    """
+    if df is None or df.is_empty():
+        return pd.DataFrame()
+
+    pd_df = df.to_pandas()
+
+    # 将 datetime 列重命名为 date（FreqAI 标准列名）
+    if "datetime" in pd_df.columns:
+        pd_df["date"] = pd.to_datetime(pd_df["datetime"])
+        pd_df.drop(columns=["datetime"], inplace=True)
+
+    return pd_df
+
+
+def convert_pandas_to_polars(df: pd.DataFrame) -> pl.DataFrame:
+    """
+    将 pandas DataFrame 转换为 polars DataFrame
+
+    FreqAI 风格: 将 date 列转回 datetime 列
+
+    参数:
+        df: pandas DataFrame
+
+    返回:
+        polars DataFrame，包含 datetime 列
+    """
+    if df is None or df.empty:
+        return pl.DataFrame()
+
+    pd_df = df.copy()
+
+    # 将 date 列重命名为 datetime（polars 标准列名）
+    if "date" in pd_df.columns:
+        pd_df["datetime"] = pd.to_datetime(pd_df["date"])
+        pd_df.drop(columns=["date"], inplace=True)
+
+    # 转换回 polars
+    return pl.from_pandas(pd_df)
 
 
 def get_timestamp() -> int:
@@ -34,40 +86,75 @@ def load_json(path: Path) -> Optional[dict]:
         return json.load(f)
 
 
-def save_parquet(df: pl.DataFrame, path: Path) -> None:
-    """保存DataFrame到Parquet文件"""
+def save_parquet(df: Any, path: Path) -> None:
+    """保存 DataFrame 到 Parquet 文件 (支持 polars 和 pandas)"""
     path.parent.mkdir(parents=True, exist_ok=True)
-    df.write_parquet(path)
+    if isinstance(df, pl.DataFrame):
+        df.write_parquet(path)
+    elif isinstance(df, pd.DataFrame):
+        df.to_parquet(path)
+    else:
+        raise TypeError(f"Unsupported DataFrame type: {type(df)}")
 
 
-def load_parquet(path: Path) -> Optional[pl.DataFrame]:
-    """从Parquet文件加载DataFrame"""
+def load_parquet(path: Path, as_pandas: bool = False) -> Optional[Any]:
+    """
+    从 Parquet 文件加载 DataFrame
+
+    参数:
+        path: 文件路径
+        as_pandas: 是否返回 pandas DataFrame (默认 polars)
+
+    返回:
+        DataFrame 或 None
+    """
     if not path.exists():
         return None
+    if as_pandas:
+        return pd.read_parquet(path)
     return pl.read_parquet(path)
 
 
 def query_by_time(
-    df: pl.DataFrame,
+    df: Any,
     start: Optional[datetime] = None,
     end: Optional[datetime] = None,
-) -> pl.DataFrame:
+) -> Any:
     """
     根据时间范围过滤DataFrame
 
     参数:
-        df: 输入DataFrame（必须包含datetime列）
+        df: 输入DataFrame（必须包含datetime或date列）
         start: 开始时间（可选）
         end: 结束时间（可选）
 
     返回:
-        过滤后的DataFrame
+        过滤后的DataFrame (类型与输入一致)
     """
-    if start:
-        df = df.filter(pl.col("datetime") >= start)
-    if end:
-        df = df.filter(pl.col("datetime") <= end)
-    return df.sort("datetime")
+    date_col = "date" if isinstance(df, pd.DataFrame) and "date" in df.columns else "datetime"
+
+    if isinstance(df, pl.DataFrame):
+        if start:
+            df = df.filter(pl.col("datetime") >= start)
+        if end:
+            df = df.filter(pl.col("datetime") <= end)
+        return df.sort("datetime")
+    elif isinstance(df, pd.DataFrame):
+        if date_col in df.columns:
+            if start:
+                df = df[df[date_col] >= start]
+            if end:
+                df = df[df[date_col] <= end]
+            return df.sort_values(date_col)
+        else:
+            # datetime 是索引
+            if start:
+                df = df[df.index >= start]
+            if end:
+                df = df[df.index <= end]
+            return df.sort_index()
+    else:
+        raise TypeError(f"Unsupported DataFrame type: {type(df)}")
 
 
 @dataclass
